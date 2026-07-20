@@ -7,17 +7,21 @@ It removes these title-screen elements:
 - Singleplayer
 - Multiplayer
 - Minecraft Realms
-- Realms news and invitation icons
+- Realms diamond and newspaper notification symbols
 
-It keeps Mod Menu's **Mods** button and adds one full-width **PLAY** button immediately above it. Pressing PLAY connects directly to:
+It keeps Mod Menu's **Mods** button and adds one full-width **Play BUTECO :D** button immediately above it. Pressing the button connects directly to:
 
 ```text
 buteco.qd.je
 ```
 
-## Version 1.0.4
+## Version 1.0.5
 
-This update changes the label to **Play BUTECO :D**, gives **BUTECO** a per-letter purple gradient, and continuously removes late-added Realms news/invitation icons that overlap the Play button.
+This update:
+
+- Disables the separate Realms notification overlay using a client mixin, removing the diamond and newspaper symbols.
+- Gives `:D` the same final purple color used by the `O` in `BUTECO`.
+- Keeps Fabric Loader compatibility at version 0.19.2 or later.
 
 ## Build with GitHub Actions
 
@@ -26,7 +30,7 @@ Upload the contents of this project folder to the root of a GitHub repository. O
 Install this file from the artifact:
 
 ```text
-buteco-play-1.0.4.jar
+buteco-play-1.0.5.jar
 ```
 
 Do not install the `-sources.jar` file.

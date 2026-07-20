@@ -160,7 +160,11 @@ public final class ButecoPlayClient implements ClientModInitializer {
             );
         }
 
-        return label.append(Component.literal(" :D"));
+        int finalPurple = BUTECO_GRADIENT[BUTECO_GRADIENT.length - 1];
+        return label.append(
+                Component.literal(" :D")
+                        .withStyle(style -> style.withColor(finalPurple))
+        );
     }
 
     private static boolean isExistingPlayButton(AbstractWidget widget) {

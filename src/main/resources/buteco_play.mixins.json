@@ -1,0 +1,10 @@
+{
+  "required": true,
+  "package": "je.qd.buteco.play.mixin",
+  "client": [
+    "TitleScreenMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
