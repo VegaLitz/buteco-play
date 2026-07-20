@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "buteco_play",
+  "version": "${version}",
+  "name": "Buteco Play",
+  "description": "Replaces the vanilla title-screen game-mode buttons with one Play button for buteco.qd.je.",
+  "authors": [
+    "Victor"
+  ],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "je.qd.buteco.play.ButecoPlayClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "~26.1.2",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
+}
