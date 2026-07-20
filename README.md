@@ -15,7 +15,7 @@ It keeps Mod Menu's **Mods** button and adds one full-width **Play BUTECO :D** b
 buteco.qd.je
 ```
 
-## Version 1.0.5
+## Version 1.0.6
 
 This update:
 
@@ -30,7 +30,7 @@ Upload the contents of this project folder to the root of a GitHub repository. O
 Install this file from the artifact:
 
 ```text
-buteco-play-1.0.5.jar
+buteco-play-1.0.6.jar
 ```
 
 Do not install the `-sources.jar` file.
@@ -49,3 +49,5 @@ Edit these constants in `ButecoPlayClient.java`:
 private static final String SERVER_NAME = "Buteco";
 private static final String SERVER_ADDRESS = "buteco.qd.je";
 ```
+
+- Returns to the customized title screen after disconnecting instead of opening the multiplayer server list.

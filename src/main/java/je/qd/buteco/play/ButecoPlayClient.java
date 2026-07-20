@@ -17,6 +17,7 @@ import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
+import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 
@@ -44,6 +45,18 @@ public final class ButecoPlayClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         ScreenEvents.AFTER_INIT.register((minecraft, screen, scaledWidth, scaledHeight) -> {
+            // The vanilla Disconnect button normally sends multiplayer players back
+            // to the saved-server list. This client intentionally has no multiplayer
+            // menu, so redirect that screen to the customized title screen instead.
+            if (screen instanceof JoinMultiplayerScreen) {
+                minecraft.execute(() -> {
+                    if (minecraft.screen == screen) {
+                        minecraft.setScreen(new TitleScreen());
+                    }
+                });
+                return;
+            }
+
             if (!(screen instanceof TitleScreen)) {
                 return;
             }
