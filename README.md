@@ -15,9 +15,9 @@ It keeps Mod Menu's **Mods** button and adds one full-width **PLAY** button imme
 buteco.qd.je
 ```
 
-## Version 1.0.3
+## Version 1.0.4
 
-This update waits until Mod Menu has finished adding its title-screen controls before changing the menu. This fixes the missing Mods button and removes the Realms newspaper/invitation widgets that previously remained visible.
+This update changes the label to **Play BUTECO :D**, gives **BUTECO** a per-letter purple gradient, and continuously removes late-added Realms news/invitation icons that overlap the Play button.
 
 ## Build with GitHub Actions
 
@@ -26,7 +26,7 @@ Upload the contents of this project folder to the root of a GitHub repository. O
 Install this file from the artifact:
 
 ```text
-buteco-play-1.0.3.jar
+buteco-play-1.0.4.jar
 ```
 
 Do not install the `-sources.jar` file.

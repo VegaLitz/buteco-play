@@ -18,11 +18,21 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 
 public final class ButecoPlayClient implements ClientModInitializer {
     private static final String SERVER_NAME = "Buteco";
     private static final String SERVER_ADDRESS = "buteco.qd.je";
-    private static final Component PLAY_LABEL = Component.literal("PLAY");
+    private static final String PLAY_TEXT = "Play BUTECO :D";
+    private static final int[] BUTECO_GRADIENT = {
+            0xE9C7FF,
+            0xDDA5FF,
+            0xCF7BFF,
+            0xB95CF6,
+            0x9F3DE1,
+            0x7E22CE
+    };
+    private static final Component PLAY_LABEL = createPlayLabel();
 
     /**
      * Wait a few extracted frames before changing the menu. Mod Menu can add its
@@ -39,34 +49,39 @@ public final class ButecoPlayClient implements ClientModInitializer {
             }
 
             int[] attempts = {0};
-            boolean[] finished = {false};
+            Button[] playButton = {null};
 
             ScreenEvents.afterExtract(screen).register(
                     (extractedScreen, graphics, mouseX, mouseY, tickDelta) -> {
-                        if (finished[0]) {
-                            return;
+                        if (playButton[0] == null) {
+                            attempts[0]++;
+                            boolean force = attempts[0] >= MAX_EXTRACT_ATTEMPTS;
+
+                            playButton[0] = replaceMainMenuButtons(
+                                    minecraft,
+                                    extractedScreen,
+                                    scaledWidth,
+                                    scaledHeight,
+                                    force
+                            );
                         }
 
-                        attempts[0]++;
-                        boolean force = attempts[0] >= MAX_EXTRACT_ATTEMPTS;
-
-                        finished[0] = replaceMainMenuButtons(
-                                minecraft,
-                                extractedScreen,
-                                scaledWidth,
-                                scaledHeight,
-                                force
-                        );
+                        if (playButton[0] != null) {
+                            // Realms can add its news/invitation widgets after the main
+                            // title-screen widgets. Keep cleaning only the PLAY row so
+                            // those late icons cannot remain on top of the button.
+                            removeWidgetsOverlappingPlayRow(extractedScreen, playButton[0]);
+                        }
                     }
             );
         });
     }
 
     /**
-     * @return true once the menu was changed, or false when it should wait one
-     *         more extracted frame for Mod Menu to add its button.
+     * @return the new Play button once the menu was changed, or {@code null}
+     *         when it should wait one more extracted frame for Mod Menu.
      */
-    private static boolean replaceMainMenuButtons(
+    private static Button replaceMainMenuButtons(
             Minecraft minecraft,
             Screen titleScreen,
             int scaledWidth,
@@ -82,7 +97,7 @@ public final class ButecoPlayClient implements ClientModInitializer {
 
         // Mod Menu may register its title-screen callback after this mod.
         if (modsButton == null && !force) {
-            return false;
+            return null;
         }
 
         AbstractWidget realmsButton = widgets.stream()
@@ -95,7 +110,7 @@ public final class ButecoPlayClient implements ClientModInitializer {
         AbstractWidget finalModsButton = modsButton;
         AbstractWidget finalRealmsButton = realmsButton;
         widgets.removeIf(widget -> isVanillaGameModeButton(widget)
-                || PLAY_LABEL.equals(widget.getMessage())
+                || isExistingPlayButton(widget)
                 || isRealmsRowCompanion(widget, finalRealmsButton, finalModsButton));
 
         int width;
@@ -129,7 +144,29 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 .build();
 
         widgets.add(playButton);
-        return true;
+        removeWidgetsOverlappingPlayRow(titleScreen, playButton);
+        return playButton;
+    }
+
+    private static Component createPlayLabel() {
+        MutableComponent label = Component.literal("Play ");
+        String buteco = "BUTECO";
+
+        for (int index = 0; index < buteco.length(); index++) {
+            int color = BUTECO_GRADIENT[index];
+            label.append(
+                    Component.literal(String.valueOf(buteco.charAt(index)))
+                            .withStyle(style -> style.withColor(color))
+            );
+        }
+
+        return label.append(Component.literal(" :D"));
+    }
+
+    private static boolean isExistingPlayButton(AbstractWidget widget) {
+        String visibleText = widget.getMessage().getString().trim();
+        return visibleText.equalsIgnoreCase("PLAY")
+                || visibleText.equalsIgnoreCase(PLAY_TEXT);
     }
 
     private static boolean isVanillaGameModeButton(AbstractWidget widget) {
@@ -182,6 +219,34 @@ public final class ButecoPlayClient implements ClientModInitializer {
         int widgetCenterY = widget.getY() + widget.getHeight() / 2;
 
         return widgetCenterY >= rowTop && widgetCenterY < rowBottom;
+    }
+
+    /**
+     * Removes late-added Realms icons that overlap the new Play button while
+     * leaving the Mods row and all bottom-row controls untouched.
+     */
+    private static void removeWidgetsOverlappingPlayRow(
+            Screen titleScreen,
+            Button playButton
+    ) {
+        int rowTop = playButton.getY();
+        int rowBottom = rowTop + playButton.getHeight();
+        int rowLeft = playButton.getX();
+        int rowRight = rowLeft + playButton.getWidth();
+
+        Screens.getWidgets(titleScreen).removeIf(widget -> {
+            if (widget == playButton) {
+                return false;
+            }
+
+            int widgetCenterY = widget.getY() + widget.getHeight() / 2;
+            int widgetLeft = widget.getX();
+            int widgetRight = widgetLeft + widget.getWidth();
+            boolean sameRow = widgetCenterY >= rowTop && widgetCenterY < rowBottom;
+            boolean overlapsHorizontally = widgetLeft < rowRight && widgetRight > rowLeft;
+
+            return sameRow && overlapsHorizontally;
+        });
     }
 
     /**

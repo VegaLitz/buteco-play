@@ -3,7 +3,7 @@
   "id": "buteco_play",
   "version": "${version}",
   "name": "Buteco Play",
-  "description": "Replaces the vanilla title-screen game-mode buttons with one Play button for buteco.qd.je.",
+  "description": "Replaces the vanilla title-screen game-mode buttons with a custom Buteco Play button for buteco.qd.je.",
   "authors": [
     "Victor"
   ],
