@@ -25,11 +25,11 @@ public final class ButecoPlayClient implements ClientModInitializer {
     private static final Component PLAY_LABEL = Component.literal("PLAY");
 
     /**
-     * Wait a few rendered frames before changing the menu. Mod Menu can add its
+     * Wait a few extracted frames before changing the menu. Mod Menu can add its
      * title-screen button from its own callback, so editing immediately during
      * AFTER_INIT can run too early depending on mod initialization order.
      */
-    private static final int MAX_RENDER_ATTEMPTS = 3;
+    private static final int MAX_EXTRACT_ATTEMPTS = 3;
 
     @Override
     public void onInitializeClient() {
@@ -41,18 +41,18 @@ public final class ButecoPlayClient implements ClientModInitializer {
             int[] attempts = {0};
             boolean[] finished = {false};
 
-            ScreenEvents.afterRender(screen).register(
-                    (renderedScreen, graphics, mouseX, mouseY, tickDelta) -> {
+            ScreenEvents.afterExtract(screen).register(
+                    (extractedScreen, graphics, mouseX, mouseY, tickDelta) -> {
                         if (finished[0]) {
                             return;
                         }
 
                         attempts[0]++;
-                        boolean force = attempts[0] >= MAX_RENDER_ATTEMPTS;
+                        boolean force = attempts[0] >= MAX_EXTRACT_ATTEMPTS;
 
                         finished[0] = replaceMainMenuButtons(
                                 minecraft,
-                                renderedScreen,
+                                extractedScreen,
                                 scaledWidth,
                                 scaledHeight,
                                 force
@@ -64,7 +64,7 @@ public final class ButecoPlayClient implements ClientModInitializer {
 
     /**
      * @return true once the menu was changed, or false when it should wait one
-     *         more rendered frame for Mod Menu to add its button.
+     *         more extracted frame for Mod Menu to add its button.
      */
     private static boolean replaceMainMenuButtons(
             Minecraft minecraft,
