@@ -6,6 +6,7 @@ import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 import net.fabricmc.api.ClientModInitializer;
@@ -23,20 +24,54 @@ public final class ButecoPlayClient implements ClientModInitializer {
     private static final String SERVER_ADDRESS = "buteco.qd.je";
     private static final Component PLAY_LABEL = Component.literal("PLAY");
 
+    /**
+     * Wait a few rendered frames before changing the menu. Mod Menu can add its
+     * title-screen button from its own callback, so editing immediately during
+     * AFTER_INIT can run too early depending on mod initialization order.
+     */
+    private static final int MAX_RENDER_ATTEMPTS = 3;
+
     @Override
     public void onInitializeClient() {
         ScreenEvents.AFTER_INIT.register((minecraft, screen, scaledWidth, scaledHeight) -> {
-            if (screen instanceof TitleScreen) {
-                replaceMainMenuButtons(minecraft, screen, scaledWidth, scaledHeight);
+            if (!(screen instanceof TitleScreen)) {
+                return;
             }
+
+            int[] attempts = {0};
+            boolean[] finished = {false};
+
+            ScreenEvents.afterRender(screen).register(
+                    (renderedScreen, graphics, mouseX, mouseY, tickDelta) -> {
+                        if (finished[0]) {
+                            return;
+                        }
+
+                        attempts[0]++;
+                        boolean force = attempts[0] >= MAX_RENDER_ATTEMPTS;
+
+                        finished[0] = replaceMainMenuButtons(
+                                minecraft,
+                                renderedScreen,
+                                scaledWidth,
+                                scaledHeight,
+                                force
+                        );
+                    }
+            );
         });
     }
 
-    private static void replaceMainMenuButtons(
+    /**
+     * @return true once the menu was changed, or false when it should wait one
+     *         more rendered frame for Mod Menu to add its button.
+     */
+    private static boolean replaceMainMenuButtons(
             Minecraft minecraft,
             Screen titleScreen,
             int scaledWidth,
-            int scaledHeight
+            int scaledHeight,
+            boolean force
     ) {
         List<AbstractWidget> widgets = Screens.getWidgets(titleScreen);
 
@@ -45,14 +80,46 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 .findFirst()
                 .orElse(null);
 
-        widgets.removeIf(widget -> isVanillaGameModeButton(widget) || PLAY_LABEL.equals(widget.getMessage()));
+        // Mod Menu may register its title-screen callback after this mod.
+        if (modsButton == null && !force) {
+            return false;
+        }
 
-        int width = modsButton != null ? modsButton.getWidth() : 200;
-        int height = modsButton != null ? modsButton.getHeight() : 20;
-        int x = modsButton != null ? modsButton.getX() : (scaledWidth - width) / 2;
-        int y = modsButton != null
-                ? modsButton.getY() - height - 4
-                : scaledHeight / 4 + 48;
+        AbstractWidget realmsButton = widgets.stream()
+                .filter(ButecoPlayClient::isRealmsButton)
+                .findFirst()
+                .orElse(null);
+
+        // Remove the three vanilla play-mode buttons, an older PLAY button, and
+        // every auxiliary widget occupying the Realms row (news/invite icons).
+        AbstractWidget finalModsButton = modsButton;
+        AbstractWidget finalRealmsButton = realmsButton;
+        widgets.removeIf(widget -> isVanillaGameModeButton(widget)
+                || PLAY_LABEL.equals(widget.getMessage())
+                || isRealmsRowCompanion(widget, finalRealmsButton, finalModsButton));
+
+        int width;
+        int height;
+        int x;
+        int y;
+
+        if (modsButton != null) {
+            width = modsButton.getWidth();
+            height = modsButton.getHeight();
+            x = modsButton.getX();
+            y = modsButton.getY() - height - 4;
+        } else if (realmsButton != null) {
+            // Fallback when Mod Menu is not installed or has its button disabled.
+            width = realmsButton.getWidth();
+            height = realmsButton.getHeight();
+            x = realmsButton.getX();
+            y = realmsButton.getY();
+        } else {
+            width = 300;
+            height = 20;
+            x = (scaledWidth - width) / 2;
+            y = scaledHeight / 4 + 48;
+        }
 
         Button playButton = Button.builder(
                         PLAY_LABEL,
@@ -62,6 +129,7 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 .build();
 
         widgets.add(playButton);
+        return true;
     }
 
     private static boolean isVanillaGameModeButton(AbstractWidget widget) {
@@ -70,20 +138,50 @@ public final class ButecoPlayClient implements ClientModInitializer {
 
         return message.equals(Component.translatable("menu.singleplayer"))
                 || message.equals(Component.translatable("menu.multiplayer"))
-                || message.equals(Component.translatable("menu.online"))
-                || message.equals(Component.translatable("menu.realms"))
+                || isRealmsButton(widget)
                 || visibleText.equalsIgnoreCase("Singleplayer")
-                || visibleText.equalsIgnoreCase("Multiplayer")
+                || visibleText.equalsIgnoreCase("Multiplayer");
+    }
+
+    private static boolean isRealmsButton(AbstractWidget widget) {
+        Component message = widget.getMessage();
+        String visibleText = message.getString();
+
+        return message.equals(Component.translatable("menu.online"))
+                || message.equals(Component.translatable("menu.realms"))
                 || visibleText.equalsIgnoreCase("Minecraft Realms");
     }
 
     private static boolean isModsButton(AbstractWidget widget) {
         Component message = widget.getMessage();
-        String visibleText = message.getString();
+        String visibleText = message.getString().trim().toLowerCase(Locale.ROOT);
 
         return message.equals(Component.translatable("modmenu.title"))
                 || message.equals(Component.translatable("menu.mods"))
-                || visibleText.equalsIgnoreCase("Mods");
+                || visibleText.equals("mods")
+                || visibleText.startsWith("mods (");
+    }
+
+    /**
+     * The Realms news and invitation indicators are separate widgets placed on
+     * top of the Realms button. Removing only the main Realms button leaves those
+     * icons behind, so remove every other widget whose vertical center occupies
+     * that same row. The Mod Menu button is explicitly preserved.
+     */
+    private static boolean isRealmsRowCompanion(
+            AbstractWidget widget,
+            AbstractWidget realmsButton,
+            AbstractWidget modsButton
+    ) {
+        if (realmsButton == null || widget == realmsButton || widget == modsButton) {
+            return false;
+        }
+
+        int rowTop = realmsButton.getY();
+        int rowBottom = rowTop + realmsButton.getHeight();
+        int widgetCenterY = widget.getY() + widget.getHeight() / 2;
+
+        return widgetCenterY >= rowTop && widgetCenterY < rowBottom;
     }
 
     /**

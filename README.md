@@ -1,41 +1,39 @@
 # Buteco Play
 
-Client-side Fabric mod for **Minecraft 26.1.2**.
+Client-side Fabric mod for **Minecraft 26.1.2** and **Fabric Loader 0.19.2 or later**.
 
-It removes these title-screen buttons:
+It removes these title-screen elements:
 
 - Singleplayer
 - Multiplayer
 - Minecraft Realms
+- Realms news and invitation icons
 
-It adds one full-width **PLAY** button immediately above the existing **Mods** button. Pressing PLAY connects directly to:
+It keeps Mod Menu's **Mods** button and adds one full-width **PLAY** button immediately above it. Pressing PLAY connects directly to:
 
 ```text
 buteco.qd.je
 ```
 
-## Build locally
+## Version 1.0.2
 
-Requirements:
+This update waits until Mod Menu has finished adding its title-screen controls before changing the menu. This fixes the missing Mods button and removes the Realms newspaper/invitation widgets that previously remained visible.
 
-- JDK 25
-- Gradle 9.5.1
+## Build with GitHub Actions
 
-Run:
+Upload the contents of this project folder to the root of a GitHub repository. Open **Actions**, choose **Build**, and run the workflow. The compiled mod is included in the downloadable `buteco-play` artifact.
 
-```bash
-gradle build
+Install this file from the artifact:
+
+```text
+buteco-play-1.0.2.jar
 ```
 
-The mod JAR will be in `build/libs/`.
-
-## Build without installing Gradle
-
-Upload this project to a GitHub repository and run the included **Build** workflow under the repository's **Actions** tab. Download the `buteco-play` artifact after the workflow completes.
+Do not install the `-sources.jar` file.
 
 ## Install
 
-Put the built JAR in the client's `mods` folder together with Fabric API for Minecraft 26.1.2.
+Put the built JAR in the client's `mods` folder together with Fabric API and Mod Menu for Minecraft 26.1.2.
 
 This mod is client-side only; it does not need to be installed on the server.
 
