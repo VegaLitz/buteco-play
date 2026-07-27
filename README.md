@@ -21,7 +21,7 @@ Upload the contents of this project folder to the root of your GitHub repository
 Install this file from the artifact:
 
 ```text
-buteco-play-1.1.3.jar
+buteco-play-1.1.10.jar
 ```
 
 Do not install the `-sources.jar` file.
@@ -77,3 +77,10 @@ Replace that line with another hostname or `hostname:port`. The file is read whe
 - Moves SkinShuffle's Skin Presets button onto the same row as Options and Quit Game.
 - Centres the entire bottom row horizontally.
 - Aligns and centres the upper icon/logo group to the same horizontal bounds.
+
+
+## v1.1.10
+
+- Keeps Skin Presets in the centred bottom row while ending the upper BUTECO button at the right edge of Quit Game.
+- Moves the Mods, Accessibility, and Language tooltip close to the pointer, slightly below and to the right.
+- Replaces the purple tooltip outline with a stepped white Minecraft-style border inset by one pixel.

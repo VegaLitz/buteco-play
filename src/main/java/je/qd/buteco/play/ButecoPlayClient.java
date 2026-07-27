@@ -163,7 +163,9 @@ public final class ButecoPlayClient implements ClientModInitializer {
                                     layout[0].playButton(),
                                     layout[0].sideButtons(),
                                     mouseX,
-                                    mouseY
+                                    mouseY,
+                                    scaledWidth,
+                                    scaledHeight
                             );
                         }
                     }
@@ -505,7 +507,10 @@ public final class ButecoPlayClient implements ClientModInitializer {
             x += widget.getWidth() + BOTTOM_BUTTON_GAP;
         }
 
-        return new BottomRowLayout(left, x - BOTTOM_BUTTON_GAP, y);
+        // Skin Presets stays in the centred bottom row, but the upper BUTECO
+        // group intentionally ends at the right edge of Quit Game.
+        int playGroupRight = quitButton.getX() + quitButton.getWidth();
+        return new BottomRowLayout(left, playGroupRight, y);
     }
 
     /**
@@ -605,7 +610,9 @@ public final class ButecoPlayClient implements ClientModInitializer {
             Button playButton,
             List<AbstractWidget> sideButtons,
             int mouseX,
-            int mouseY
+            int mouseY,
+            int scaledWidth,
+            int scaledHeight
     ) {
         for (int index = 0; index < sideButtons.size(); index++) {
             AbstractWidget widget = sideButtons.get(index);
@@ -624,53 +631,83 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 default -> Component.empty();
             };
 
-            String tooltipText = tooltip.getString();
-            if (tooltipText.isBlank()) {
+            if (tooltip.getString().isBlank()) {
                 return;
             }
 
             int textWidth = minecraft.font.width(tooltip);
-            int tooltipWidth = textWidth + 8;
+            int tooltipWidth = textWidth + 10;
             int tooltipHeight = 17;
 
-            // Keep the tooltip inside the BUTECO button, immediately to the right
-            // of the icon column. This intentionally places the text over the logo.
-            int tooltipX = playButton.getX() + 6;
-            int preferredY = widget.getY()
-                    + (widget.getHeight() - tooltipHeight) / 2;
-            int tooltipY = Math.max(
-                    playButton.getY() + 3,
-                    Math.min(
-                            preferredY,
-                            playButton.getY() + playButton.getHeight() - tooltipHeight - 3
-                    )
-            );
+            // Place the tooltip close to the pointer, slightly below and to its
+            // right. Flip it when necessary so it remains inside the screen.
+            int tooltipX = mouseX + 7;
+            int tooltipY = mouseY + 9;
 
-            int maxRight = playButton.getX() + playButton.getWidth() - 4;
-            if (tooltipX + tooltipWidth > maxRight) {
-                tooltipWidth = Math.max(12, maxRight - tooltipX);
+            if (tooltipX + tooltipWidth > scaledWidth - 2) {
+                tooltipX = mouseX - tooltipWidth - 7;
+            }
+            if (tooltipY + tooltipHeight > scaledHeight - 2) {
+                tooltipY = mouseY - tooltipHeight - 7;
             }
 
-            // These calls happen after drawPlayLogo(), so the background and text
-            // are submitted later and render above the image.
+            tooltipX = Math.max(2, Math.min(tooltipX, scaledWidth - tooltipWidth - 2));
+            tooltipY = Math.max(2, Math.min(tooltipY, scaledHeight - tooltipHeight - 2));
+
+            // Minecraft-style tooltip frame: a black outer edge, a white border
+            // inset by one pixel, clipped corners, and a dark translucent centre.
+            // This is submitted after the logo, so it always renders on top.
             graphics.fill(
                     tooltipX,
                     tooltipY,
                     tooltipX + tooltipWidth,
                     tooltipY + tooltipHeight,
+                    0xFF000000
+            );
+            graphics.fill(
+                    tooltipX + 1,
+                    tooltipY + 1,
+                    tooltipX + tooltipWidth - 1,
+                    tooltipY + tooltipHeight - 1,
+                    0xFFFFFFFF
+            );
+            graphics.fill(
+                    tooltipX + 2,
+                    tooltipY + 2,
+                    tooltipX + tooltipWidth - 2,
+                    tooltipY + tooltipHeight - 2,
                     0xE0100010
             );
-            graphics.outline(
-                    tooltipX,
-                    tooltipY,
-                    tooltipWidth,
-                    tooltipHeight,
-                    0xFF8A2BE2
+
+            // Cut the four inner white corners by one pixel for the stepped,
+            // block-like border used by the rest of the menu UI.
+            graphics.fill(tooltipX + 1, tooltipY + 1, tooltipX + 2, tooltipY + 2, 0xFF000000);
+            graphics.fill(
+                    tooltipX + tooltipWidth - 2,
+                    tooltipY + 1,
+                    tooltipX + tooltipWidth - 1,
+                    tooltipY + 2,
+                    0xFF000000
             );
+            graphics.fill(
+                    tooltipX + 1,
+                    tooltipY + tooltipHeight - 2,
+                    tooltipX + 2,
+                    tooltipY + tooltipHeight - 1,
+                    0xFF000000
+            );
+            graphics.fill(
+                    tooltipX + tooltipWidth - 2,
+                    tooltipY + tooltipHeight - 2,
+                    tooltipX + tooltipWidth - 1,
+                    tooltipY + tooltipHeight - 1,
+                    0xFF000000
+            );
+
             graphics.text(
                     minecraft.font,
                     tooltip,
-                    tooltipX + 4,
+                    tooltipX + 5,
                     tooltipY + 4,
                     0xFFFFFFFF,
                     true
