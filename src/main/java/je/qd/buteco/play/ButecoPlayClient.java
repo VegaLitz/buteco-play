@@ -55,6 +55,7 @@ public final class ButecoPlayClient implements ClientModInitializer {
     private static final int SIDE_BUTTON_GAP = 4;
     private static final int SIDE_COLUMN_GAP = 4;
     private static final int MENU_ROW_GAP = 4;
+    private static final int BOTTOM_BUTTON_GAP = 4;
 
     /**
      * Wait a few extracted frames before changing the menu. Mod Menu can add its
@@ -120,9 +121,27 @@ public final class ButecoPlayClient implements ClientModInitializer {
                         }
 
                         if (layout[0] != null) {
-                            // Keep the three side controls in their column even if
-                            // Mod Menu or another title-screen mod adjusts them late.
-                            placeSideButtons(layout[0].playButton(), layout[0].sideButtons());
+                            // SkinShuffle can add Skin Presets after the vanilla title
+                            // screen initializes. Re-centre the complete bottom row on
+                            // every extracted frame, then keep the logo group aligned
+                            // to those exact horizontal bounds.
+                            BottomRowLayout bottomRow = centerBottomMenuButtons(
+                                    extractedScreen,
+                                    scaledWidth
+                            );
+
+                            if (bottomRow != null) {
+                                positionPlayGroup(
+                                        layout[0].playButton(),
+                                        layout[0].sideButtons(),
+                                        bottomRow
+                                );
+                            } else {
+                                placeSideButtons(
+                                        layout[0].playButton(),
+                                        layout[0].sideButtons()
+                                );
+                            }
 
                             // Realms and other late-added widgets must not cover the
                             // custom logo button.
@@ -204,6 +223,29 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 || isFriendsWidget(widget)
                 || isRealmsRowCompanion(widget, finalRealmsButton, finalModsButton));
 
+        BottomRowLayout bottomRow = centerBottomMenuButtons(titleScreen, scaledWidth);
+
+        if (bottomRow == null) {
+            int fallbackLeft;
+            int fallbackRight;
+
+            if (optionsButton != null && quitButton != null) {
+                fallbackLeft = Math.min(optionsButton.getX(), quitButton.getX());
+                fallbackRight = Math.max(
+                        optionsButton.getX() + optionsButton.getWidth(),
+                        quitButton.getX() + quitButton.getWidth()
+                );
+            } else {
+                fallbackLeft = (scaledWidth - DEFAULT_BOTTOM_GROUP_WIDTH) / 2;
+                fallbackRight = fallbackLeft + DEFAULT_BOTTOM_GROUP_WIDTH;
+            }
+
+            int fallbackY = optionsButton != null
+                    ? optionsButton.getY()
+                    : scaledHeight / 4 + 100;
+            bottomRow = new BottomRowLayout(fallbackLeft, fallbackRight, fallbackY);
+        }
+
         int columnWidth = sideButtons.stream()
                 .mapToInt(AbstractWidget::getWidth)
                 .max()
@@ -214,35 +256,10 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 .sum()
                 + SIDE_BUTTON_GAP * Math.max(0, sideButtons.size() - 1);
 
-        // Use the actual bottom-row bounds whenever possible. This makes the
-        // left edge of the compact column line up with Options, and the right
-        // edge of the logo button line up with Quit Game.
-        int groupLeft;
-        int groupRight;
-
-        if (optionsButton != null && quitButton != null) {
-            groupLeft = Math.min(optionsButton.getX(), quitButton.getX());
-            groupRight = Math.max(
-                    optionsButton.getX() + optionsButton.getWidth(),
-                    quitButton.getX() + quitButton.getWidth()
-            );
-        } else {
-            groupLeft = (scaledWidth - DEFAULT_BOTTOM_GROUP_WIDTH) / 2;
-            groupRight = groupLeft + DEFAULT_BOTTOM_GROUP_WIDTH;
-        }
-
-        int optionsY = optionsButton != null
-                ? optionsButton.getY()
-                : scaledHeight / 4 + 100;
-
-        int groupWidth = groupRight - groupLeft;
-        groupRight = Math.min(scaledWidth - 10, groupLeft + groupWidth);
-        groupLeft = Math.max(10, groupRight - groupWidth);
-
-        int x = groupLeft + columnWidth + SIDE_COLUMN_GAP;
-        int width = Math.max(120, groupRight - x);
+        int x = bottomRow.left() + columnWidth + SIDE_COLUMN_GAP;
+        int width = Math.max(120, bottomRow.right() - x);
         int height = Math.max(20, columnHeight);
-        int y = Math.max(20, optionsY - MENU_ROW_GAP - height);
+        int y = Math.max(20, bottomRow.y() - MENU_ROW_GAP - height);
 
         Button playButton = Button.builder(
                         Component.empty(),
@@ -442,6 +459,85 @@ public final class ButecoPlayClient implements ClientModInitializer {
         }
     }
 
+    /**
+     * Places Options, Quit Game, and SkinShuffle's Skin Presets on one centred
+     * horizontal row. The original widget widths are preserved.
+     */
+    private static BottomRowLayout centerBottomMenuButtons(
+            Screen titleScreen,
+            int scaledWidth
+    ) {
+        List<AbstractWidget> widgets = Screens.getWidgets(titleScreen);
+
+        AbstractWidget optionsButton = widgets.stream()
+                .filter(ButecoPlayClient::isOptionsButton)
+                .findFirst()
+                .orElse(null);
+        AbstractWidget quitButton = widgets.stream()
+                .filter(ButecoPlayClient::isQuitButton)
+                .findFirst()
+                .orElse(null);
+        AbstractWidget skinPresetsButton = widgets.stream()
+                .filter(ButecoPlayClient::isSkinPresetsButton)
+                .findFirst()
+                .orElse(null);
+
+        if (optionsButton == null || quitButton == null) {
+            return null;
+        }
+
+        List<AbstractWidget> bottomButtons = new ArrayList<>(3);
+        bottomButtons.add(optionsButton);
+        bottomButtons.add(quitButton);
+        addUnique(bottomButtons, skinPresetsButton);
+
+        int totalWidth = bottomButtons.stream()
+                .mapToInt(AbstractWidget::getWidth)
+                .sum()
+                + BOTTOM_BUTTON_GAP * Math.max(0, bottomButtons.size() - 1);
+        int left = Math.max(10, (scaledWidth - totalWidth) / 2);
+        int y = optionsButton.getY();
+        int x = left;
+
+        for (AbstractWidget widget : bottomButtons) {
+            widget.setX(x);
+            widget.setY(y);
+            x += widget.getWidth() + BOTTOM_BUTTON_GAP;
+        }
+
+        return new BottomRowLayout(left, x - BOTTOM_BUTTON_GAP, y);
+    }
+
+    /**
+     * Keeps the upper logo/button group aligned to the exact same left and right
+     * edges as the centred bottom row.
+     */
+    private static void positionPlayGroup(
+            Button playButton,
+            List<AbstractWidget> sideButtons,
+            BottomRowLayout bottomRow
+    ) {
+        int columnWidth = sideButtons.stream()
+                .mapToInt(AbstractWidget::getWidth)
+                .max()
+                .orElse(20);
+        int columnHeight = sideButtons.stream()
+                .mapToInt(AbstractWidget::getHeight)
+                .sum()
+                + SIDE_BUTTON_GAP * Math.max(0, sideButtons.size() - 1);
+
+        int x = bottomRow.left() + columnWidth + SIDE_COLUMN_GAP;
+        int width = Math.max(120, bottomRow.right() - x);
+        int height = Math.max(20, columnHeight);
+        int y = Math.max(20, bottomRow.y() - MENU_ROW_GAP - height);
+
+        playButton.setX(x);
+        playButton.setY(y);
+        setWidgetDimension(playButton, "width", width);
+        setWidgetDimension(playButton, "height", height);
+        placeSideButtons(playButton, sideButtons);
+    }
+
     private static void placeSideButtons(
             Button playButton,
             List<AbstractWidget> sideButtons
@@ -629,6 +725,18 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 || visibleText.equals("quit");
     }
 
+    private static boolean isSkinPresetsButton(AbstractWidget widget) {
+        String visibleText = widget.getMessage().getString()
+                .trim()
+                .toLowerCase(Locale.ROOT);
+        String className = widget.getClass().getName().toLowerCase(Locale.ROOT);
+
+        return visibleText.equals("skin presets")
+                || visibleText.equals("skin preset")
+                || visibleText.contains("skin presets")
+                || (className.contains("skin") && className.contains("preset"));
+    }
+
     private static boolean isAccessibilityButton(AbstractWidget widget) {
         Component message = widget.getMessage();
         String visibleText = message.getString().trim().toLowerCase(Locale.ROOT);
@@ -781,6 +889,13 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 minecraft.gui.setScreen(new TitleScreen());
             }
         });
+    }
+
+    private record BottomRowLayout(
+            int left,
+            int right,
+            int y
+    ) {
     }
 
     private record TitleLayout(

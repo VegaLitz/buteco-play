@@ -64,3 +64,16 @@ Replace that line with another hostname or `hostname:port`. The file is read whe
 
 - Restores hover text for Mods, Accessibility, and Language.
 - Renders each tooltip manually after the BUTECO logo, so the text and tooltip background appear on top of the image instead of underneath it.
+
+
+## v1.1.8
+
+- Updated the mod description.
+- Changed the credited author from Victor to VegaLitz.
+
+
+## v1.1.9
+
+- Moves SkinShuffle's Skin Presets button onto the same row as Options and Quit Game.
+- Centres the entire bottom row horizontally.
+- Aligns and centres the upper icon/logo group to the same horizontal bounds.
