@@ -5,16 +5,14 @@ Client-side Fabric mod for **Minecraft 26.2** and **Fabric Loader 0.19.3 or late
 ## What it changes
 
 - Removes Singleplayer, Multiplayer, and Minecraft Realms from the title screen.
-- Keeps Mod Menu's **Mods** button.
-- Adds one full-width **Play BUTECO :D** button above Mods.
+- Replaces the old text Play button with the supplied **BUTECO logo** inside one clickable button.
+- Moves **Accessibility**, **Language**, and **Mods** into a vertical column to the left of the logo button.
 - Connects directly to the server address stored in `config/buteco.txt` (default: `buteco.qd.je`).
 - Removes the Realms diamond and newspaper notification symbols.
 - Returns to the customized title screen after disconnecting.
 - Removes Minecraft 26.2's Friends button from the title screen and pause menu.
 - Blocks the Friends List overlay, including the default `O` key route.
-- Disables the **Online...** button in Options, so the Friends List and Realms online settings cannot be opened.
-
-Minecraft 26.2 final does not include the experimental peer-to-peer world connection feature; Mojang removed it during the pre-release phase. This mod additionally removes access to the remaining Friends List interface.
+- Disables the **Online...** button in Options.
 
 ## Build with GitHub Actions
 
@@ -23,7 +21,7 @@ Upload the contents of this project folder to the root of your GitHub repository
 Install this file from the artifact:
 
 ```text
-buteco-play-1.1.2.jar
+buteco-play-1.1.3.jar
 ```
 
 Do not install the `-sources.jar` file.
@@ -48,4 +46,4 @@ The file contains one address by default:
 buteco.qd.je
 ```
 
-Replace that line with another hostname or `hostname:port`. The file is read whenever the **Play BUTECO :D** button is pressed, so Minecraft does not need to be restarted after editing it. Blank lines and lines beginning with `#` are ignored. If the file is missing, empty, or unreadable, the mod falls back to `buteco.qd.je`.
+Replace that line with another hostname or `hostname:port`. The file is read whenever the **BUTECO logo button** is pressed, so Minecraft does not need to be restarted after editing it. Blank lines and lines beginning with `#` are ignored. If the file is missing, empty, or unreadable, the mod falls back to `buteco.qd.je`.

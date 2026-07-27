@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
@@ -19,32 +20,37 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.FriendsButton;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
+import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.resources.Identifier;
 
 public final class ButecoPlayClient implements ClientModInitializer {
     private static final String SERVER_NAME = "Buteco";
     private static final String DEFAULT_SERVER_ADDRESS = "buteco.qd.je";
     private static final String CONFIG_FILE_NAME = "buteco.txt";
-    private static final String PLAY_TEXT = "Play BUTECO :D";
-    private static final int PLAY_BUTTON_WIDTH = 300;
-    private static final int PLAY_BUTTON_HEIGHT = 20;
-    private static final int BUTTON_SPACING = 4;
-    private static final int[] BUTECO_GRADIENT = {
-            0xE9C7FF,
-            0xDDA5FF,
-            0xCF7BFF,
-            0xB95CF6,
-            0x9F3DE1,
-            0x7E22CE
-    };
-    private static final Component PLAY_LABEL = createPlayLabel();
+
+    private static final Identifier PLAY_BUTECO_TEXTURE = Identifier.fromNamespaceAndPath(
+            "buteco_play",
+            "textures/gui/play_buteco.png"
+    );
+    private static final int PLAY_TEXTURE_WIDTH = 1024;
+    private static final int PLAY_TEXTURE_HEIGHT = 300;
+
+    // The logo's aspect ratio is close to this 270 x 80 button. The three
+    // square title-screen controls fit beside it as one vertical column.
+    private static final int PLAY_BUTTON_WIDTH = 270;
+    private static final int PLAY_BUTTON_HEIGHT = 80;
+    private static final int PLAY_BUTTON_PADDING = 4;
+    private static final int SIDE_BUTTON_GAP = 4;
+    private static final int SIDE_COLUMN_GAP = 4;
+    private static final int MENU_ROW_GAP = 4;
 
     /**
      * Wait a few extracted frames before changing the menu. Mod Menu can add its
@@ -56,7 +62,7 @@ public final class ButecoPlayClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         // Create config/buteco.txt on first launch. The address is read again
-        // whenever PLAY is pressed, so editing the file does not require a restart.
+        // whenever the logo button is pressed, so editing it needs no restart.
         ensureServerConfigExists();
 
         ScreenEvents.AFTER_INIT.register((minecraft, screen, scaledWidth, scaledHeight) -> {
@@ -72,9 +78,8 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 return;
             }
 
-            // Minecraft 26.2 adds Friends buttons to the title screen and pause menu.
-            // Remove them and disable the Online... options entry immediately and
-            // after every extracted frame, because other mods can add widgets late.
+            // Remove Friends controls and keep Online... disabled, including widgets
+            // that another mod adds after screen initialization.
             cleanRestrictedOnlineWidgets(screen);
             ScreenEvents.afterExtract(screen).register(
                     (extractedScreen, graphics, mouseX, mouseY, tickDelta) ->
@@ -93,15 +98,15 @@ public final class ButecoPlayClient implements ClientModInitializer {
             }
 
             int[] attempts = {0};
-            Button[] playButton = {null};
+            TitleLayout[] layout = {null};
 
             ScreenEvents.afterExtract(screen).register(
                     (extractedScreen, graphics, mouseX, mouseY, tickDelta) -> {
-                        if (playButton[0] == null) {
+                        if (layout[0] == null) {
                             attempts[0]++;
                             boolean force = attempts[0] >= MAX_EXTRACT_ATTEMPTS;
 
-                            playButton[0] = replaceMainMenuButtons(
+                            layout[0] = replaceMainMenuButtons(
                                     minecraft,
                                     extractedScreen,
                                     scaledWidth,
@@ -110,11 +115,21 @@ public final class ButecoPlayClient implements ClientModInitializer {
                             );
                         }
 
-                        if (playButton[0] != null) {
-                            // Realms can add its news/invitation widgets after the main
-                            // title-screen widgets. Keep cleaning only the PLAY row so
-                            // those late icons cannot remain on top of the button.
-                            removeWidgetsOverlappingPlayRow(extractedScreen, playButton[0]);
+                        if (layout[0] != null) {
+                            // Keep the three side controls in their column even if
+                            // Mod Menu or another title-screen mod adjusts them late.
+                            placeSideButtons(layout[0].playButton(), layout[0].sideButtons());
+
+                            // Realms and other late-added widgets must not cover the
+                            // custom logo button.
+                            removeWidgetsOverlappingPlayRow(
+                                    extractedScreen,
+                                    layout[0].playButton()
+                            );
+
+                            // Draw the supplied BUTECO artwork over the blank vanilla
+                            // button, preserving the normal hover/click background.
+                            drawPlayLogo(graphics, layout[0].playButton());
                         }
                     }
             );
@@ -122,10 +137,10 @@ public final class ButecoPlayClient implements ClientModInitializer {
     }
 
     /**
-     * @return the new Play button once the menu was changed, or {@code null}
-     *         when it should wait one more extracted frame for Mod Menu.
+     * @return the new title layout once Mod Menu is ready, or {@code null}
+     *         when it should wait one more extracted frame.
      */
-    private static Button replaceMainMenuButtons(
+    private static TitleLayout replaceMainMenuButtons(
             Minecraft minecraft,
             Screen titleScreen,
             int scaledWidth,
@@ -149,8 +164,17 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 .findFirst()
                 .orElse(null);
 
-        // Remove the three vanilla play-mode buttons, an older PLAY button,
-        // the Friends button, and auxiliary widgets occupying the Realms row.
+        AbstractWidget optionsButton = widgets.stream()
+                .filter(ButecoPlayClient::isOptionsButton)
+                .findFirst()
+                .orElse(null);
+
+        // Resolve these before removing anything. Icon-only buttons may have an
+        // empty visible label, so a same-row fallback is included.
+        List<AbstractWidget> sideButtons = findSideButtons(widgets, modsButton);
+
+        // Remove the three vanilla play-mode buttons, an older custom Play button,
+        // Friends, and auxiliary widgets occupying the Realms row.
         AbstractWidget finalModsButton = modsButton;
         AbstractWidget finalRealmsButton = realmsButton;
         widgets.removeIf(widget -> isVanillaGameModeButton(widget)
@@ -158,57 +182,189 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 || isFriendsWidget(widget)
                 || isRealmsRowCompanion(widget, finalRealmsButton, finalModsButton));
 
-        // Mod Menu 19 can use a compact icon button. Never copy its width for
-        // PLAY, otherwise the custom button becomes a tiny square. Keep PLAY at
-        // the standard full title-menu width and center it above the Mods row.
-        int width = Math.min(PLAY_BUTTON_WIDTH, Math.max(1, scaledWidth - 40));
-        int height = PLAY_BUTTON_HEIGHT;
-        int x = (scaledWidth - width) / 2;
-        int y;
+        int columnWidth = sideButtons.stream()
+                .mapToInt(AbstractWidget::getWidth)
+                .max()
+                .orElse(0);
 
-        if (modsButton != null) {
-            y = modsButton.getY() - height - BUTTON_SPACING;
-        } else if (realmsButton != null) {
-            y = realmsButton.getY();
-        } else {
-            y = scaledHeight / 4 + 48;
-        }
+        int reservedForColumn = sideButtons.isEmpty()
+                ? 0
+                : columnWidth + SIDE_COLUMN_GAP;
+
+        int maximumWidth = Math.max(
+                120,
+                scaledWidth - 40 - reservedForColumn
+        );
+        int width = Math.min(PLAY_BUTTON_WIDTH, maximumWidth);
+
+        int optionsY = optionsButton != null
+                ? optionsButton.getY()
+                : scaledHeight / 4 + 100;
+
+        int maximumHeight = Math.max(
+                48,
+                optionsY - MENU_ROW_GAP - 20
+        );
+        int height = Math.min(PLAY_BUTTON_HEIGHT, maximumHeight);
+
+        int groupWidth = reservedForColumn + width;
+        int groupX = (scaledWidth - groupWidth) / 2;
+        int x = groupX + reservedForColumn;
+        int y = Math.max(20, optionsY - height - MENU_ROW_GAP);
 
         Button playButton = Button.builder(
-                        PLAY_LABEL,
+                        Component.empty(),
                         button -> connectToButeco(minecraft, titleScreen)
                 )
                 .bounds(x, y, width, height)
                 .build();
 
         widgets.add(playButton);
+        placeSideButtons(playButton, sideButtons);
         removeWidgetsOverlappingPlayRow(titleScreen, playButton);
-        return playButton;
+
+        return new TitleLayout(playButton, List.copyOf(sideButtons));
     }
 
-    private static Component createPlayLabel() {
-        MutableComponent label = Component.literal("Play ");
-        String buteco = "BUTECO";
+    /**
+     * Finds Accessibility, Language, and Mods. Minecraft and resource packs may
+     * use icon-only widgets, so untranslated message checks are backed by the
+     * compact-button row immediately surrounding Mod Menu.
+     */
+    private static List<AbstractWidget> findSideButtons(
+            List<AbstractWidget> widgets,
+            AbstractWidget modsButton
+    ) {
+        AbstractWidget accessibilityButton = widgets.stream()
+                .filter(ButecoPlayClient::isAccessibilityButton)
+                .findFirst()
+                .orElse(null);
 
-        for (int index = 0; index < buteco.length(); index++) {
-            int color = BUTECO_GRADIENT[index];
-            label.append(
-                    Component.literal(String.valueOf(buteco.charAt(index)))
-                            .withStyle(style -> style.withColor(color))
-            );
+        AbstractWidget languageButton = widgets.stream()
+                .filter(ButecoPlayClient::isLanguageButton)
+                .findFirst()
+                .orElse(null);
+
+        if (modsButton != null && (accessibilityButton == null || languageButton == null)) {
+            int modsCenterY = modsButton.getY() + modsButton.getHeight() / 2;
+
+            List<AbstractWidget> compactRow = widgets.stream()
+                    .filter(widget -> widget != modsButton)
+                    .filter(widget -> !isFriendsWidget(widget))
+                    .filter(widget -> !isRealmsButton(widget))
+                    .filter(widget -> widget.getWidth() <= 24 && widget.getHeight() <= 24)
+                    .filter(widget -> Math.abs(
+                            widget.getY() + widget.getHeight() / 2 - modsCenterY
+                    ) <= 3)
+                    .sorted(Comparator.comparingInt(AbstractWidget::getX))
+                    .toList();
+
+            // The vanilla horizontal order is Language, Accessibility, Mods.
+            if (languageButton == null && !compactRow.isEmpty()) {
+                languageButton = compactRow.get(0);
+            }
+
+            if (accessibilityButton == null) {
+                for (AbstractWidget candidate : compactRow) {
+                    if (candidate != languageButton) {
+                        accessibilityButton = candidate;
+                        break;
+                    }
+                }
+            }
         }
 
-        int finalPurple = BUTECO_GRADIENT[BUTECO_GRADIENT.length - 1];
-        return label.append(
-                Component.literal(" :D")
-                        .withStyle(style -> style.withColor(finalPurple))
+        List<AbstractWidget> result = new ArrayList<>(3);
+
+        // Requested vertical order: Accessibility, Language, Mods.
+        addUnique(result, accessibilityButton);
+        addUnique(result, languageButton);
+        addUnique(result, modsButton);
+
+        return result;
+    }
+
+    private static void addUnique(
+            List<AbstractWidget> widgets,
+            AbstractWidget candidate
+    ) {
+        if (candidate != null && !widgets.contains(candidate)) {
+            widgets.add(candidate);
+        }
+    }
+
+    private static void placeSideButtons(
+            Button playButton,
+            List<AbstractWidget> sideButtons
+    ) {
+        if (sideButtons.isEmpty()) {
+            return;
+        }
+
+        int columnWidth = sideButtons.stream()
+                .mapToInt(AbstractWidget::getWidth)
+                .max()
+                .orElse(20);
+
+        int columnHeight = sideButtons.stream()
+                .mapToInt(AbstractWidget::getHeight)
+                .sum()
+                + SIDE_BUTTON_GAP * Math.max(0, sideButtons.size() - 1);
+
+        int x = playButton.getX() - SIDE_COLUMN_GAP - columnWidth;
+        int y = playButton.getY()
+                + Math.max(0, (playButton.getHeight() - columnHeight) / 2);
+
+        for (AbstractWidget widget : sideButtons) {
+            widget.setX(x + (columnWidth - widget.getWidth()) / 2);
+            widget.setY(y);
+            y += widget.getHeight() + SIDE_BUTTON_GAP;
+        }
+    }
+
+    private static void drawPlayLogo(
+            GuiGraphicsExtractor graphics,
+            Button playButton
+    ) {
+        int availableWidth = Math.max(
+                1,
+                playButton.getWidth() - PLAY_BUTTON_PADDING * 2
+        );
+        int availableHeight = Math.max(
+                1,
+                playButton.getHeight() - PLAY_BUTTON_PADDING * 2
+        );
+
+        float scale = Math.min(
+                availableWidth / (float) PLAY_TEXTURE_WIDTH,
+                availableHeight / (float) PLAY_TEXTURE_HEIGHT
+        );
+
+        int drawWidth = Math.max(1, Math.round(PLAY_TEXTURE_WIDTH * scale));
+        int drawHeight = Math.max(1, Math.round(PLAY_TEXTURE_HEIGHT * scale));
+        int drawX = playButton.getX() + (playButton.getWidth() - drawWidth) / 2;
+        int drawY = playButton.getY() + (playButton.getHeight() - drawHeight) / 2;
+
+        graphics.blit(
+                RenderPipelines.GUI_TEXTURED,
+                PLAY_BUTECO_TEXTURE,
+                drawX,
+                drawY,
+                0.0F,
+                0.0F,
+                drawWidth,
+                drawHeight,
+                PLAY_TEXTURE_WIDTH,
+                PLAY_TEXTURE_HEIGHT
         );
     }
 
     private static boolean isExistingPlayButton(AbstractWidget widget) {
         String visibleText = widget.getMessage().getString().trim();
+
         return visibleText.equalsIgnoreCase("PLAY")
-                || visibleText.equalsIgnoreCase(PLAY_TEXT);
+                || visibleText.equalsIgnoreCase("Play BUTECO :D")
+                || visibleText.equalsIgnoreCase("Play Buteco");
     }
 
     private static boolean isVanillaGameModeButton(AbstractWidget widget) {
@@ -229,6 +385,35 @@ public final class ButecoPlayClient implements ClientModInitializer {
         return message.equals(Component.translatable("menu.online"))
                 || message.equals(Component.translatable("menu.realms"))
                 || visibleText.equalsIgnoreCase("Minecraft Realms");
+    }
+
+    private static boolean isOptionsButton(AbstractWidget widget) {
+        Component message = widget.getMessage();
+        String visibleText = message.getString().trim().toLowerCase(Locale.ROOT);
+
+        return message.equals(Component.translatable("menu.options"))
+                || visibleText.equals("options...")
+                || visibleText.equals("options…");
+    }
+
+    private static boolean isAccessibilityButton(AbstractWidget widget) {
+        Component message = widget.getMessage();
+        String visibleText = message.getString().trim().toLowerCase(Locale.ROOT);
+        String className = widget.getClass().getSimpleName().toLowerCase(Locale.ROOT);
+
+        return message.equals(Component.translatable("options.accessibility"))
+                || visibleText.contains("accessibility")
+                || className.contains("accessibility");
+    }
+
+    private static boolean isLanguageButton(AbstractWidget widget) {
+        Component message = widget.getMessage();
+        String visibleText = message.getString().trim().toLowerCase(Locale.ROOT);
+        String className = widget.getClass().getSimpleName().toLowerCase(Locale.ROOT);
+
+        return message.equals(Component.translatable("options.language"))
+                || visibleText.contains("language")
+                || className.contains("language");
     }
 
     private static boolean isModsButton(AbstractWidget widget) {
@@ -264,8 +449,8 @@ public final class ButecoPlayClient implements ClientModInitializer {
     }
 
     /**
-     * Removes late-added Realms icons that overlap the new Play button while
-     * leaving the Mods row and all bottom-row controls untouched.
+     * Removes late-added widgets that overlap the custom logo button while
+     * leaving its separate side column and all bottom-row controls untouched.
      */
     private static void removeWidgetsOverlappingPlayRow(
             Screen titleScreen,
@@ -351,6 +536,12 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 minecraft.gui.setScreen(new TitleScreen());
             }
         });
+    }
+
+    private record TitleLayout(
+            Button playButton,
+            List<AbstractWidget> sideButtons
+    ) {
     }
 
     private static Path serverConfigPath() {
