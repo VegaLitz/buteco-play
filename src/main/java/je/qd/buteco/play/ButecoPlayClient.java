@@ -87,11 +87,11 @@ public final class ButecoPlayClient implements ClientModInitializer {
             // Remove Friends controls and keep Online... disabled, including widgets
             // that another mod adds after screen initialization.
             cleanRestrictedWidgets(screen);
-            centerInGameSkinPresetsRow(screen);
+            placeInGameSkinPresetsOnLeft(screen, scaledWidth);
             ScreenEvents.afterExtract(screen).register(
                     (extractedScreen, graphics, mouseX, mouseY, tickDelta) -> {
                         cleanRestrictedWidgets(extractedScreen);
-                        centerInGameSkinPresetsRow(extractedScreen);
+                        placeInGameSkinPresetsOnLeft(extractedScreen, scaledWidth);
                     }
             );
 
@@ -872,12 +872,14 @@ public final class ButecoPlayClient implements ClientModInitializer {
     }
 
     /**
-     * Places SkinShuffle's in-game Skin Presets button directly to the left of
-     * Options while keeping the complete row inside the normal centred pause-menu
-     * width. The Disconnect button supplies stable row bounds, so this remains
-     * centred without moving the rest of the menu or touching the character model.
+     * SkinShuffle places its in-game Skin Presets button at the right edge of the
+     * pause menu. Mirror that button to the left edge while leaving SkinShuffle's
+     * character model completely untouched.
      */
-    private static void centerInGameSkinPresetsRow(Screen screen) {
+    private static void placeInGameSkinPresetsOnLeft(
+            Screen screen,
+            int scaledWidth
+    ) {
         if (screen instanceof TitleScreen) {
             return;
         }
@@ -887,46 +889,26 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 .filter(ButecoPlayClient::isSkinPresetsButton)
                 .findFirst()
                 .orElse(null);
-        AbstractWidget optionsButton = widgets.stream()
-                .filter(ButecoPlayClient::isOptionsButton)
-                .findFirst()
-                .orElse(null);
-        AbstractWidget disconnectButton = widgets.stream()
-                .filter(ButecoPlayClient::isDisconnectButton)
-                .findFirst()
-                .orElse(null);
 
-        // Requiring Disconnect limits this adjustment to the multiplayer pause menu.
-        if (skinPresetsButton == null
-                || optionsButton == null
-                || disconnectButton == null) {
+        // Only alter the in-game pause menu. Requiring Disconnect avoids moving
+        // similarly named controls on unrelated SkinShuffle screens.
+        boolean hasDisconnectButton = widgets.stream()
+                .anyMatch(ButecoPlayClient::isDisconnectButton);
+
+        if (skinPresetsButton == null || !hasDisconnectButton) {
             return;
         }
 
-        int rowLeft = disconnectButton.getX();
-        int rowWidth = disconnectButton.getWidth();
-        int gap = BOTTOM_BUTTON_GAP;
-
-        // Preserve SkinShuffle's preferred button width when it fits. On narrower
-        // GUI scales, cap it at roughly one third of the centred menu row so Options
-        // always retains a useful clickable width.
-        int maximumSkinWidth = Math.max(80, rowWidth / 3);
-        int skinWidth = Math.min(skinPresetsButton.getWidth(), maximumSkinWidth);
-        int optionsWidth = rowWidth - skinWidth - gap;
-
-        if (optionsWidth < 120) {
-            optionsWidth = 120;
-            skinWidth = Math.max(80, rowWidth - optionsWidth - gap);
+        int centreX = skinPresetsButton.getX() + skinPresetsButton.getWidth() / 2;
+        if (centreX <= scaledWidth / 2) {
+            return;
         }
 
-        int y = optionsButton.getY();
-        skinPresetsButton.setX(rowLeft);
-        skinPresetsButton.setY(y);
-        setWidgetDimension(skinPresetsButton, "width", skinWidth);
-
-        optionsButton.setX(rowLeft + skinWidth + gap);
-        optionsButton.setY(y);
-        setWidgetDimension(optionsButton, "width", optionsWidth);
+        int rightMargin = Math.max(
+                10,
+                scaledWidth - skinPresetsButton.getX() - skinPresetsButton.getWidth()
+        );
+        skinPresetsButton.setX(rightMargin);
     }
 
     private static void cleanRestrictedWidgets(Screen screen) {
