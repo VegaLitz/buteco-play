@@ -3,7 +3,7 @@
   "id": "buteco_play",
   "version": "${version}",
   "name": "Buteco Play",
-  "description": "Replaces the vanilla title-screen game-mode buttons with a custom Buteco Play button for buteco.qd.je.",
+  "description": "A locked-down Buteco client menu for buteco.qd.je that removes vanilla play modes and Minecraft 26.2 Friends List access.",
   "authors": [
     "Victor"
   ],
@@ -15,8 +15,8 @@
     ]
   },
   "depends": {
-    "fabricloader": ">=0.19.2",
-    "minecraft": "~26.1.2",
+    "fabricloader": ">=0.19.3",
+    "minecraft": "~26.2",
     "java": ">=25",
     "fabric-api": "*"
   },

@@ -1,20 +1,27 @@
 package je.qd.buteco.play;
 
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 
+import je.qd.buteco.play.screen.ButecoOnlineOptionsScreen;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.FriendsButton;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
@@ -50,10 +57,34 @@ public final class ButecoPlayClient implements ClientModInitializer {
             // menu, so redirect that screen to the customized title screen instead.
             if (screen instanceof JoinMultiplayerScreen) {
                 minecraft.execute(() -> {
-                    if (minecraft.screen == screen) {
-                        minecraft.setScreen(new TitleScreen());
+                    if (minecraft.gui.screen() == screen) {
+                        minecraft.gui.setScreen(new TitleScreen());
                     }
                 });
+                return;
+            }
+
+            // Minecraft 26.2 adds Friends buttons to the title screen and pause menu.
+            // Remove them immediately and after every extracted frame, because some
+            // screens and other mods can add their widgets after AFTER_INIT runs.
+            removeFriendsWidgets(screen);
+            ScreenEvents.afterExtract(screen).register(
+                    (extractedScreen, graphics, mouseX, mouseY, tickDelta) ->
+                            removeFriendsWidgets(extractedScreen)
+            );
+
+            // The O key can still try to open the Friends overlay. Close any Friends
+            // UI immediately so the feature is inaccessible even without a button.
+            if (isFriendsScreen(screen)) {
+                closeFriendsScreen(minecraft, screen);
+                return;
+            }
+
+            // Replace vanilla Online Options with a minimal screen that keeps only
+            // the existing Realms "News & Invites" option. The entire Friends List
+            // section is therefore absent rather than merely disabled.
+            if (isVanillaOnlineOptionsScreen(screen)) {
+                replaceOnlineOptionsScreen(minecraft, screen);
                 return;
             }
 
@@ -118,12 +149,13 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 .findFirst()
                 .orElse(null);
 
-        // Remove the three vanilla play-mode buttons, an older PLAY button, and
-        // every auxiliary widget occupying the Realms row (news/invite icons).
+        // Remove the three vanilla play-mode buttons, an older PLAY button,
+        // the Friends button, and auxiliary widgets occupying the Realms row.
         AbstractWidget finalModsButton = modsButton;
         AbstractWidget finalRealmsButton = realmsButton;
         widgets.removeIf(widget -> isVanillaGameModeButton(widget)
                 || isExistingPlayButton(widget)
+                || isFriendsWidget(widget)
                 || isRealmsRowCompanion(widget, finalRealmsButton, finalModsButton));
 
         int width;
@@ -266,9 +298,176 @@ public final class ButecoPlayClient implements ClientModInitializer {
         });
     }
 
+    private static void removeFriendsWidgets(Screen screen) {
+        Screens.getWidgets(screen).removeIf(ButecoPlayClient::isFriendsWidget);
+    }
+
+    private static boolean isFriendsWidget(AbstractWidget widget) {
+        if (widget instanceof FriendsButton) {
+            return true;
+        }
+
+        String className = widget.getClass().getSimpleName().toLowerCase(Locale.ROOT);
+        String message = widget.getMessage().getString().trim().toLowerCase(Locale.ROOT);
+
+        return className.contains("friendsbutton")
+                || message.equals("friends")
+                || message.startsWith("friends list")
+                || message.startsWith("allow requests")
+                || message.startsWith("in-game notification")
+                || message.startsWith("visibility")
+                || message.startsWith("xbox settings");
+    }
+
+    private static boolean isFriendsScreen(Screen screen) {
+        String className = screen.getClass().getName().toLowerCase(Locale.ROOT);
+        String title = screen.getTitle().getString().trim().toLowerCase(Locale.ROOT);
+
+        return className.contains(".screens.friends.")
+                || className.endsWith("friendsscreen")
+                || className.endsWith("friendsoverlayscreen")
+                || title.equals("friends")
+                || title.equals("friends list");
+    }
+
+    private static void closeFriendsScreen(Minecraft minecraft, Screen screen) {
+        minecraft.execute(() -> {
+            if (minecraft.gui.screen() != screen) {
+                return;
+            }
+
+            if (minecraft.level != null) {
+                minecraft.gui.setScreen(null);
+            } else {
+                minecraft.gui.setScreen(new TitleScreen());
+            }
+        });
+    }
+
+    private static boolean isVanillaOnlineOptionsScreen(Screen screen) {
+        if (screen instanceof ButecoOnlineOptionsScreen) {
+            return false;
+        }
+
+        String className = screen.getClass().getName();
+        String title = screen.getTitle().getString().trim();
+
+        return className.equals("net.minecraft.client.gui.screens.options.OnlineOptionsScreen")
+                || title.equalsIgnoreCase("Online Options");
+    }
+
+    private static void replaceOnlineOptionsScreen(Minecraft minecraft, Screen vanillaScreen) {
+        Screen parent = findParentScreen(vanillaScreen);
+        AbstractWidget realmsOption = findRealmsOptionWidget(vanillaScreen);
+
+        minecraft.execute(() -> {
+            if (minecraft.gui.screen() == vanillaScreen) {
+                minecraft.gui.setScreen(new ButecoOnlineOptionsScreen(parent, realmsOption));
+            }
+        });
+    }
+
+    private static Screen findParentScreen(Screen screen) {
+        for (Class<?> type = screen.getClass(); type != null; type = type.getSuperclass()) {
+            for (Field field : type.getDeclaredFields()) {
+                if (!Screen.class.isAssignableFrom(field.getType())) {
+                    continue;
+                }
+
+                try {
+                    field.setAccessible(true);
+                    Object value = field.get(screen);
+
+                    if (value instanceof Screen parent && parent != screen) {
+                        return parent;
+                    }
+                } catch (ReflectiveOperationException | RuntimeException ignored) {
+                    // Try the next Screen field.
+                }
+            }
+        }
+
+        return null;
+    }
+
     /**
-     * Minecraft 26.1 switched to unobfuscated Mojang names. Reflection here keeps the
-     * mod tolerant of minor ConnectScreen signature changes while still targeting 26.1.2.
+     * OnlineOptionsScreen stores its option controls inside nested layout/list
+     * objects. Walk only the GUI object graph and reuse the original Realms
+     * widget so its vanilla toggle and saved setting keep working unchanged.
+     */
+    private static AbstractWidget findRealmsOptionWidget(Screen screen) {
+        ArrayDeque<ObjectDepth> queue = new ArrayDeque<>();
+        Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+
+        queue.add(new ObjectDepth(screen, 0));
+
+        while (!queue.isEmpty()) {
+            ObjectDepth current = queue.removeFirst();
+            Object value = current.value();
+
+            if (value == null || !visited.add(value)) {
+                continue;
+            }
+
+            if (value instanceof AbstractWidget widget && isRealmsNewsOption(widget)) {
+                return widget;
+            }
+
+            if (current.depth() >= 6) {
+                continue;
+            }
+
+            if (value instanceof Iterable<?> iterable) {
+                for (Object child : iterable) {
+                    queue.addLast(new ObjectDepth(child, current.depth() + 1));
+                }
+            }
+
+            Class<?> valueClass = value.getClass();
+            Package valuePackage = valueClass.getPackage();
+            String packageName = valuePackage == null ? "" : valuePackage.getName();
+
+            if (!packageName.startsWith("net.minecraft.client.gui")) {
+                continue;
+            }
+
+            for (Class<?> type = valueClass; type != null; type = type.getSuperclass()) {
+                for (Field field : type.getDeclaredFields()) {
+                    if (Modifier.isStatic(field.getModifiers()) || field.getType().isPrimitive()) {
+                        continue;
+                    }
+
+                    try {
+                        field.setAccessible(true);
+                        Object child = field.get(value);
+
+                        if (child != null) {
+                            queue.addLast(new ObjectDepth(child, current.depth() + 1));
+                        }
+                    } catch (ReflectiveOperationException | RuntimeException ignored) {
+                        // Some implementation fields may not be reflectively accessible.
+                    }
+                }
+            }
+        }
+
+        System.err.println("[Buteco Play] Could not locate the Realms News & Invites option.");
+        return null;
+    }
+
+    private static boolean isRealmsNewsOption(AbstractWidget widget) {
+        String message = widget.getMessage().getString().trim().toLowerCase(Locale.ROOT);
+        return message.contains("news & invites")
+                || message.contains("news and invites")
+                || (message.contains("news") && message.contains("invites"));
+    }
+
+    private record ObjectDepth(Object value, int depth) {
+    }
+
+    /**
+     * Minecraft 26.2 uses unobfuscated Mojang names. Reflection here keeps the
+     * mod tolerant of minor ConnectScreen signature changes while targeting 26.2.
      */
     private static void connectToButeco(Minecraft minecraft, Screen parentScreen) {
         try {
