@@ -4,6 +4,11 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Collections;
@@ -16,6 +21,7 @@ import java.util.Set;
 
 import je.qd.buteco.play.screen.ButecoOnlineOptionsScreen;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import net.minecraft.client.Minecraft;
@@ -30,7 +36,8 @@ import net.minecraft.network.chat.MutableComponent;
 
 public final class ButecoPlayClient implements ClientModInitializer {
     private static final String SERVER_NAME = "Buteco";
-    private static final String SERVER_ADDRESS = "buteco.qd.je";
+    private static final String DEFAULT_SERVER_ADDRESS = "buteco.qd.je";
+    private static final String CONFIG_FILE_NAME = "buteco.txt";
     private static final String PLAY_TEXT = "Play BUTECO :D";
     private static final int[] BUTECO_GRADIENT = {
             0xE9C7FF,
@@ -51,6 +58,10 @@ public final class ButecoPlayClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
+        // Create config/buteco.txt on first launch. The address is read again
+        // whenever PLAY is pressed, so editing the file does not require a restart.
+        ensureServerConfigExists();
+
         ScreenEvents.AFTER_INIT.register((minecraft, screen, scaledWidth, scaledHeight) -> {
             // The vanilla Disconnect button normally sends multiplayer players back
             // to the saved-server list. This client intentionally has no multiplayer
@@ -465,21 +476,81 @@ public final class ButecoPlayClient implements ClientModInitializer {
     private record ObjectDepth(Object value, int depth) {
     }
 
+    private static Path serverConfigPath() {
+        return FabricLoader.getInstance().getConfigDir().resolve(CONFIG_FILE_NAME);
+    }
+
+    private static void ensureServerConfigExists() {
+        Path configFile = serverConfigPath();
+
+        try {
+            Files.createDirectories(configFile.getParent());
+
+            if (Files.notExists(configFile)) {
+                Files.writeString(
+                        configFile,
+                        DEFAULT_SERVER_ADDRESS + System.lineSeparator(),
+                        StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE_NEW
+                );
+            }
+        } catch (IOException exception) {
+            System.err.println(
+                    "[Buteco Play] Could not create " + configFile
+                            + "; using " + DEFAULT_SERVER_ADDRESS
+            );
+            exception.printStackTrace();
+        }
+    }
+
+    private static String loadServerAddress() {
+        Path configFile = serverConfigPath();
+        ensureServerConfigExists();
+
+        try {
+            for (String line : Files.readAllLines(configFile, StandardCharsets.UTF_8)) {
+                String address = line.strip();
+
+                // Allow blank lines and comments, while keeping the common case
+                // as simple as a one-line file containing only the server address.
+                if (!address.isEmpty() && !address.startsWith("#")) {
+                    return address;
+                }
+            }
+
+            System.err.println(
+                    "[Buteco Play] " + configFile
+                            + " contains no server address; using "
+                            + DEFAULT_SERVER_ADDRESS
+            );
+        } catch (IOException exception) {
+            System.err.println(
+                    "[Buteco Play] Could not read " + configFile
+                            + "; using " + DEFAULT_SERVER_ADDRESS
+            );
+            exception.printStackTrace();
+        }
+
+        return DEFAULT_SERVER_ADDRESS;
+    }
+
     /**
      * Minecraft 26.2 uses unobfuscated Mojang names. Reflection here keeps the
      * mod tolerant of minor ConnectScreen signature changes while targeting 26.2.
      */
     private static void connectToButeco(Minecraft minecraft, Screen parentScreen) {
+        String serverAddressText = loadServerAddress();
+
         try {
             Class<?> serverAddressClass = Class.forName(
                     "net.minecraft.client.multiplayer.resolver.ServerAddress"
             );
-            Object serverAddress = createServerAddress(serverAddressClass);
+            Object serverAddress = createServerAddress(serverAddressClass, serverAddressText);
 
             Class<?> serverDataClass = Class.forName(
                     "net.minecraft.client.multiplayer.ServerData"
             );
-            Object serverData = createServerData(serverDataClass);
+            Object serverData = createServerData(serverDataClass, serverAddressText);
 
             Class<?> connectScreenClass = Class.forName(
                     "net.minecraft.client.gui.screens.ConnectScreen"
@@ -502,20 +573,22 @@ public final class ButecoPlayClient implements ClientModInitializer {
 
             connectMethod.invoke(null, arguments);
         } catch (ReflectiveOperationException | RuntimeException exception) {
-            System.err.println("[Buteco Play] Could not connect to " + SERVER_ADDRESS);
+            System.err.println("[Buteco Play] Could not connect to " + serverAddressText);
             exception.printStackTrace();
         }
     }
 
-    private static Object createServerAddress(Class<?> serverAddressClass)
-            throws ReflectiveOperationException {
+    private static Object createServerAddress(
+            Class<?> serverAddressClass,
+            String serverAddressText
+    ) throws ReflectiveOperationException {
         for (String methodName : List.of("parseString", "parse")) {
             try {
                 Method factory = serverAddressClass.getMethod(methodName, String.class);
 
                 if (Modifier.isStatic(factory.getModifiers())
                         && serverAddressClass.isAssignableFrom(factory.getReturnType())) {
-                    return factory.invoke(null, SERVER_ADDRESS);
+                    return factory.invoke(null, serverAddressText);
                 }
             } catch (NoSuchMethodException ignored) {
                 // Try the next known factory name.
@@ -524,18 +597,20 @@ public final class ButecoPlayClient implements ClientModInitializer {
 
         Constructor<?> constructor = serverAddressClass.getDeclaredConstructor(String.class);
         constructor.setAccessible(true);
-        return constructor.newInstance(SERVER_ADDRESS);
+        return constructor.newInstance(serverAddressText);
     }
 
-    private static Object createServerData(Class<?> serverDataClass)
-            throws ReflectiveOperationException {
+    private static Object createServerData(
+            Class<?> serverDataClass,
+            String serverAddressText
+    ) throws ReflectiveOperationException {
         Constructor<?>[] constructors = serverDataClass.getDeclaredConstructors();
         Arrays.sort(constructors, Comparator.comparingInt(Constructor::getParameterCount));
 
         ReflectiveOperationException lastFailure = null;
 
         for (Constructor<?> constructor : constructors) {
-            Object[] arguments = createConstructorArguments(constructor.getParameterTypes());
+            Object[] arguments = createConstructorArguments(constructor.getParameterTypes(), serverAddressText);
 
             try {
                 constructor.setAccessible(true);
@@ -552,7 +627,10 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 : new NoSuchMethodException("No usable ServerData constructor found");
     }
 
-    private static Object[] createConstructorArguments(Class<?>[] parameterTypes) {
+    private static Object[] createConstructorArguments(
+            Class<?>[] parameterTypes,
+            String serverAddressText
+    ) {
         Object[] arguments = new Object[parameterTypes.length];
         int stringIndex = 0;
 
@@ -560,7 +638,7 @@ public final class ButecoPlayClient implements ClientModInitializer {
             Class<?> parameterType = parameterTypes[index];
 
             if (parameterType == String.class) {
-                arguments[index] = stringIndex++ == 0 ? SERVER_NAME : SERVER_ADDRESS;
+                arguments[index] = stringIndex++ == 0 ? SERVER_NAME : serverAddressText;
             } else if (parameterType.isEnum()) {
                 arguments[index] = enumConstant(parameterType, "OTHER");
             } else if (parameterType == boolean.class || parameterType == Boolean.class) {
