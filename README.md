@@ -53,3 +53,14 @@ Replace that line with another hostname or `hostname:port`. The file is read whe
 
 - Sharper Play BUTECO logo using a higher-quality resample of the provided artwork.
 - Clears side-button labels and shrinks icon widgets so their text does not render beneath the logo.
+
+
+## v1.1.6
+
+- Removes the hover tooltips from the Mods, Accessibility, and Language icon buttons so their text cannot render underneath the BUTECO artwork.
+
+
+## v1.1.7
+
+- Restores hover text for Mods, Accessibility, and Language.
+- Renders each tooltip manually after the BUTECO logo, so the text and tooltip background appear on top of the image instead of underneath it.

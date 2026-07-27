@@ -134,6 +134,18 @@ public final class ButecoPlayClient implements ClientModInitializer {
                             // Draw the supplied BUTECO artwork over the blank vanilla
                             // button, preserving the normal hover/click background.
                             drawPlayLogo(graphics, layout[0].playButton());
+
+                            // Vanilla tooltips are extracted before this late logo layer,
+                            // which made their text appear behind the artwork. Draw our own
+                            // tooltip last so it is always visible on top of the logo.
+                            drawSideButtonTooltip(
+                                    minecraft,
+                                    graphics,
+                                    layout[0].playButton(),
+                                    layout[0].sideButtons(),
+                                    mouseX,
+                                    mouseY
+                            );
                         }
                     }
             );
@@ -316,6 +328,7 @@ public final class ButecoPlayClient implements ClientModInitializer {
     private static void normalizeSideButtons(List<AbstractWidget> sideButtons) {
         for (AbstractWidget widget : sideButtons) {
             hideWidgetLabel(widget);
+            clearWidgetTooltip(widget);
             shrinkWidgetToIcon(widget);
         }
     }
@@ -345,6 +358,55 @@ public final class ButecoPlayClient implements ClientModInitializer {
             } catch (ReflectiveOperationException ignored) {
                 return;
             }
+        }
+    }
+
+    /**
+     * The icon buttons normally show hover tooltips such as "Accessibility
+     * Settings". Because the supplied logo is drawn over the button row, those
+     * deferred tooltips can appear underneath the artwork. Disable the tooltips
+     * for these three title-screen icons entirely.
+     */
+    private static void clearWidgetTooltip(AbstractWidget widget) {
+        Class<?> current = widget.getClass();
+
+        while (current != null) {
+            for (Method method : current.getDeclaredMethods()) {
+                if (!method.getName().equals("setTooltip")
+                        || method.getParameterCount() != 1) {
+                    continue;
+                }
+
+                try {
+                    method.setAccessible(true);
+                    method.invoke(widget, new Object[] {null});
+                    return;
+                } catch (ReflectiveOperationException | RuntimeException ignored) {
+                    // Try another matching method or the field fallback below.
+                }
+            }
+
+            current = current.getSuperclass();
+        }
+
+        // Fallback for widgets whose tooltip is stored directly rather than
+        // exposed through a setter.
+        current = widget.getClass();
+        while (current != null) {
+            for (Field field : current.getDeclaredFields()) {
+                if (!field.getName().toLowerCase(Locale.ROOT).contains("tooltip")) {
+                    continue;
+                }
+
+                try {
+                    field.setAccessible(true);
+                    field.set(widget, null);
+                } catch (ReflectiveOperationException | RuntimeException ignored) {
+                    // Continue clearing any other tooltip-related field.
+                }
+            }
+
+            current = current.getSuperclass();
         }
     }
 
@@ -439,6 +501,86 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 PLAY_TEXTURE_WIDTH,
                 PLAY_TEXTURE_HEIGHT
         );
+    }
+
+    private static void drawSideButtonTooltip(
+            Minecraft minecraft,
+            GuiGraphicsExtractor graphics,
+            Button playButton,
+            List<AbstractWidget> sideButtons,
+            int mouseX,
+            int mouseY
+    ) {
+        for (int index = 0; index < sideButtons.size(); index++) {
+            AbstractWidget widget = sideButtons.get(index);
+
+            if (mouseX < widget.getX()
+                    || mouseX >= widget.getX() + widget.getWidth()
+                    || mouseY < widget.getY()
+                    || mouseY >= widget.getY() + widget.getHeight()) {
+                continue;
+            }
+
+            Component tooltip = switch (index) {
+                case 0 -> Component.translatable("modmenu.title");
+                case 1 -> Component.translatable("options.accessibility");
+                case 2 -> Component.translatable("options.language");
+                default -> Component.empty();
+            };
+
+            String tooltipText = tooltip.getString();
+            if (tooltipText.isBlank()) {
+                return;
+            }
+
+            int textWidth = minecraft.font.width(tooltip);
+            int tooltipWidth = textWidth + 8;
+            int tooltipHeight = 17;
+
+            // Keep the tooltip inside the BUTECO button, immediately to the right
+            // of the icon column. This intentionally places the text over the logo.
+            int tooltipX = playButton.getX() + 6;
+            int preferredY = widget.getY()
+                    + (widget.getHeight() - tooltipHeight) / 2;
+            int tooltipY = Math.max(
+                    playButton.getY() + 3,
+                    Math.min(
+                            preferredY,
+                            playButton.getY() + playButton.getHeight() - tooltipHeight - 3
+                    )
+            );
+
+            int maxRight = playButton.getX() + playButton.getWidth() - 4;
+            if (tooltipX + tooltipWidth > maxRight) {
+                tooltipWidth = Math.max(12, maxRight - tooltipX);
+            }
+
+            // These calls happen after drawPlayLogo(), so the background and text
+            // are submitted later and render above the image.
+            graphics.fill(
+                    tooltipX,
+                    tooltipY,
+                    tooltipX + tooltipWidth,
+                    tooltipY + tooltipHeight,
+                    0xE0100010
+            );
+            graphics.outline(
+                    tooltipX,
+                    tooltipY,
+                    tooltipWidth,
+                    tooltipHeight,
+                    0xFF8A2BE2
+            );
+            graphics.text(
+                    minecraft.font,
+                    tooltip,
+                    tooltipX + 4,
+                    tooltipY + 4,
+                    0xFFFFFFFF,
+                    true
+            );
+            return;
+        }
     }
 
     private static boolean isExistingPlayButton(AbstractWidget widget) {
