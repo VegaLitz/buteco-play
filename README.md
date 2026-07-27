@@ -91,3 +91,10 @@ Replace that line with another hostname or `hostname:port`. The file is read whe
 - Reorders the bottom row to Options, Skin Presets, Quit Game.
 - Keeps the complete row centred.
 - Adds a SkinShuffle compatibility adjustment that makes the title-screen skin preview slightly smaller, lowers it toward the Skin Presets button, and follows the button when it moves.
+
+
+## v1.1.12
+
+- Moves Skin Presets to the left of Options.
+- Keeps the order Skin Presets, Options, Quit Game and centres the complete row.
+- Keeps the SkinShuffle preview adjustment following the Skin Presets button.

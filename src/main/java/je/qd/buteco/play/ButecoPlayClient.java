@@ -477,7 +477,7 @@ public final class ButecoPlayClient implements ClientModInitializer {
     }
 
     /**
-     * Places Options, Quit Game, and SkinShuffle's Skin Presets on one centred
+     * Places SkinShuffle's Skin Presets, Options, and Quit Game on one centred
      * horizontal row. The original widget widths are preserved.
      */
     private static BottomRowLayout centerBottomMenuButtons(
@@ -507,11 +507,11 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 ? 0
                 : skinPresetsButton.getX() + skinPresetsButton.getWidth() / 2;
 
-        // Requested order: Options, Skin Presets, Quit Game. Skin Presets is now
-        // immediately to the right of Options instead of being the far-right item.
+        // Requested order: Skin Presets, Options, Quit Game. Skin Presets sits
+        // immediately to the left of Options while the complete row stays centred.
         List<AbstractWidget> bottomButtons = new ArrayList<>(3);
-        bottomButtons.add(optionsButton);
         addUnique(bottomButtons, skinPresetsButton);
+        bottomButtons.add(optionsButton);
         bottomButtons.add(quitButton);
 
         int totalWidth = bottomButtons.stream()
