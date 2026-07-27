@@ -12,7 +12,7 @@ Client-side Fabric mod for **Minecraft 26.2** and **Fabric Loader 0.19.3 or late
 - Returns to the customized title screen after disconnecting.
 - Removes Minecraft 26.2's Friends button from the title screen and pause menu.
 - Blocks the Friends List overlay, including the default `O` key route.
-- Replaces Online Options with a minimal screen that keeps only Realms **News & Invites**, removing the entire Friends List section.
+- Disables the **Online...** button in Options, so the Friends List and Realms online settings cannot be opened.
 
 Minecraft 26.2 final does not include the experimental peer-to-peer world connection feature; Mojang removed it during the pre-release phase. This mod additionally removes access to the remaining Friends List interface.
 
@@ -23,7 +23,7 @@ Upload the contents of this project folder to the root of your GitHub repository
 Install this file from the artifact:
 
 ```text
-buteco-play-1.1.1.jar
+buteco-play-1.1.2.jar
 ```
 
 Do not install the `-sources.jar` file.

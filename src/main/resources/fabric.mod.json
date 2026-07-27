@@ -3,7 +3,7 @@
   "id": "buteco_play",
   "version": "${version}",
   "name": "Buteco Play",
-  "description": "A locked-down Buteco client menu with a configurable server address that removes vanilla play modes and Minecraft 26.2 Friends List access.",
+  "description": "A locked-down Buteco client menu with a configurable server address that removes vanilla play modes, Friends List access, and the Online Options entry.",
   "authors": [
     "Victor"
   ],

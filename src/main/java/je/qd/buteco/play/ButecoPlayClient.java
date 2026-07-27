@@ -1,7 +1,6 @@
 package je.qd.buteco.play;
 
 import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.io.IOException;
@@ -9,17 +8,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayDeque;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Comparator;
-import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
-import java.util.Set;
 
-import je.qd.buteco.play.screen.ButecoOnlineOptionsScreen;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
@@ -39,6 +33,9 @@ public final class ButecoPlayClient implements ClientModInitializer {
     private static final String DEFAULT_SERVER_ADDRESS = "buteco.qd.je";
     private static final String CONFIG_FILE_NAME = "buteco.txt";
     private static final String PLAY_TEXT = "Play BUTECO :D";
+    private static final int PLAY_BUTTON_WIDTH = 300;
+    private static final int PLAY_BUTTON_HEIGHT = 20;
+    private static final int BUTTON_SPACING = 4;
     private static final int[] BUTECO_GRADIENT = {
             0xE9C7FF,
             0xDDA5FF,
@@ -76,26 +73,18 @@ public final class ButecoPlayClient implements ClientModInitializer {
             }
 
             // Minecraft 26.2 adds Friends buttons to the title screen and pause menu.
-            // Remove them immediately and after every extracted frame, because some
-            // screens and other mods can add their widgets after AFTER_INIT runs.
-            removeFriendsWidgets(screen);
+            // Remove them and disable the Online... options entry immediately and
+            // after every extracted frame, because other mods can add widgets late.
+            cleanRestrictedOnlineWidgets(screen);
             ScreenEvents.afterExtract(screen).register(
                     (extractedScreen, graphics, mouseX, mouseY, tickDelta) ->
-                            removeFriendsWidgets(extractedScreen)
+                            cleanRestrictedOnlineWidgets(extractedScreen)
             );
 
             // The O key can still try to open the Friends overlay. Close any Friends
             // UI immediately so the feature is inaccessible even without a button.
             if (isFriendsScreen(screen)) {
                 closeFriendsScreen(minecraft, screen);
-                return;
-            }
-
-            // Replace vanilla Online Options with a minimal screen that keeps only
-            // the existing Realms "News & Invites" option. The entire Friends List
-            // section is therefore absent rather than merely disabled.
-            if (isVanillaOnlineOptionsScreen(screen)) {
-                replaceOnlineOptionsScreen(minecraft, screen);
                 return;
             }
 
@@ -169,26 +158,19 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 || isFriendsWidget(widget)
                 || isRealmsRowCompanion(widget, finalRealmsButton, finalModsButton));
 
-        int width;
-        int height;
-        int x;
+        // Mod Menu 19 can use a compact icon button. Never copy its width for
+        // PLAY, otherwise the custom button becomes a tiny square. Keep PLAY at
+        // the standard full title-menu width and center it above the Mods row.
+        int width = Math.min(PLAY_BUTTON_WIDTH, Math.max(1, scaledWidth - 40));
+        int height = PLAY_BUTTON_HEIGHT;
+        int x = (scaledWidth - width) / 2;
         int y;
 
         if (modsButton != null) {
-            width = modsButton.getWidth();
-            height = modsButton.getHeight();
-            x = modsButton.getX();
-            y = modsButton.getY() - height - 4;
+            y = modsButton.getY() - height - BUTTON_SPACING;
         } else if (realmsButton != null) {
-            // Fallback when Mod Menu is not installed or has its button disabled.
-            width = realmsButton.getWidth();
-            height = realmsButton.getHeight();
-            x = realmsButton.getX();
             y = realmsButton.getY();
         } else {
-            width = 300;
-            height = 20;
-            x = (scaledWidth - width) / 2;
             y = scaledHeight / 4 + 48;
         }
 
@@ -309,8 +291,24 @@ public final class ButecoPlayClient implements ClientModInitializer {
         });
     }
 
-    private static void removeFriendsWidgets(Screen screen) {
-        Screens.getWidgets(screen).removeIf(ButecoPlayClient::isFriendsWidget);
+    private static void cleanRestrictedOnlineWidgets(Screen screen) {
+        List<AbstractWidget> widgets = Screens.getWidgets(screen);
+        widgets.removeIf(ButecoPlayClient::isFriendsWidget);
+
+        for (AbstractWidget widget : widgets) {
+            if (isOnlineOptionsButton(widget)) {
+                widget.active = false;
+            }
+        }
+    }
+
+    private static boolean isOnlineOptionsButton(AbstractWidget widget) {
+        Component message = widget.getMessage();
+        String visibleText = message.getString().trim().toLowerCase(Locale.ROOT);
+
+        return message.equals(Component.translatable("options.online"))
+                || visibleText.equals("online...")
+                || visibleText.equals("online…");
     }
 
     private static boolean isFriendsWidget(AbstractWidget widget) {
@@ -353,127 +351,6 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 minecraft.gui.setScreen(new TitleScreen());
             }
         });
-    }
-
-    private static boolean isVanillaOnlineOptionsScreen(Screen screen) {
-        if (screen instanceof ButecoOnlineOptionsScreen) {
-            return false;
-        }
-
-        String className = screen.getClass().getName();
-        String title = screen.getTitle().getString().trim();
-
-        return className.equals("net.minecraft.client.gui.screens.options.OnlineOptionsScreen")
-                || title.equalsIgnoreCase("Online Options");
-    }
-
-    private static void replaceOnlineOptionsScreen(Minecraft minecraft, Screen vanillaScreen) {
-        Screen parent = findParentScreen(vanillaScreen);
-        AbstractWidget realmsOption = findRealmsOptionWidget(vanillaScreen);
-
-        minecraft.execute(() -> {
-            if (minecraft.gui.screen() == vanillaScreen) {
-                minecraft.gui.setScreen(new ButecoOnlineOptionsScreen(parent, realmsOption));
-            }
-        });
-    }
-
-    private static Screen findParentScreen(Screen screen) {
-        for (Class<?> type = screen.getClass(); type != null; type = type.getSuperclass()) {
-            for (Field field : type.getDeclaredFields()) {
-                if (!Screen.class.isAssignableFrom(field.getType())) {
-                    continue;
-                }
-
-                try {
-                    field.setAccessible(true);
-                    Object value = field.get(screen);
-
-                    if (value instanceof Screen parent && parent != screen) {
-                        return parent;
-                    }
-                } catch (ReflectiveOperationException | RuntimeException ignored) {
-                    // Try the next Screen field.
-                }
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * OnlineOptionsScreen stores its option controls inside nested layout/list
-     * objects. Walk only the GUI object graph and reuse the original Realms
-     * widget so its vanilla toggle and saved setting keep working unchanged.
-     */
-    private static AbstractWidget findRealmsOptionWidget(Screen screen) {
-        ArrayDeque<ObjectDepth> queue = new ArrayDeque<>();
-        Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
-
-        queue.add(new ObjectDepth(screen, 0));
-
-        while (!queue.isEmpty()) {
-            ObjectDepth current = queue.removeFirst();
-            Object value = current.value();
-
-            if (value == null || !visited.add(value)) {
-                continue;
-            }
-
-            if (value instanceof AbstractWidget widget && isRealmsNewsOption(widget)) {
-                return widget;
-            }
-
-            if (current.depth() >= 6) {
-                continue;
-            }
-
-            if (value instanceof Iterable<?> iterable) {
-                for (Object child : iterable) {
-                    queue.addLast(new ObjectDepth(child, current.depth() + 1));
-                }
-            }
-
-            Class<?> valueClass = value.getClass();
-            Package valuePackage = valueClass.getPackage();
-            String packageName = valuePackage == null ? "" : valuePackage.getName();
-
-            if (!packageName.startsWith("net.minecraft.client.gui")) {
-                continue;
-            }
-
-            for (Class<?> type = valueClass; type != null; type = type.getSuperclass()) {
-                for (Field field : type.getDeclaredFields()) {
-                    if (Modifier.isStatic(field.getModifiers()) || field.getType().isPrimitive()) {
-                        continue;
-                    }
-
-                    try {
-                        field.setAccessible(true);
-                        Object child = field.get(value);
-
-                        if (child != null) {
-                            queue.addLast(new ObjectDepth(child, current.depth() + 1));
-                        }
-                    } catch (ReflectiveOperationException | RuntimeException ignored) {
-                        // Some implementation fields may not be reflectively accessible.
-                    }
-                }
-            }
-        }
-
-        System.err.println("[Buteco Play] Could not locate the Realms News & Invites option.");
-        return null;
-    }
-
-    private static boolean isRealmsNewsOption(AbstractWidget widget) {
-        String message = widget.getMessage().getString().trim().toLowerCase(Locale.ROOT);
-        return message.contains("news & invites")
-                || message.contains("news and invites")
-                || (message.contains("news") && message.contains("invites"));
-    }
-
-    private record ObjectDepth(Object value, int depth) {
     }
 
     private static Path serverConfigPath() {
