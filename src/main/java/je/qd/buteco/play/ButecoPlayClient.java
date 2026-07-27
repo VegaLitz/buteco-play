@@ -538,9 +538,12 @@ public final class ButecoPlayClient implements ClientModInitializer {
             tuneSkinShufflePreview(titleScreen, skinPresetsButton);
         }
 
-        // The upper BUTECO group follows the full row and ends with Quit Game.
+        // Skin Presets stays as the separate leftmost bottom button. The upper
+        // group begins at Options so the Mods/Accessibility/Language column sits
+        // directly above Options, while the BUTECO button ends with Quit Game.
+        int playGroupLeft = optionsButton.getX();
         int playGroupRight = quitButton.getX() + quitButton.getWidth();
-        return new BottomRowLayout(left, playGroupRight, y);
+        return new BottomRowLayout(playGroupLeft, playGroupRight, y);
     }
 
     private static void rememberSkinPreviewShift(Screen screen, int deltaX) {
@@ -769,8 +772,9 @@ public final class ButecoPlayClient implements ClientModInitializer {
     }
 
     /**
-     * Keeps the upper logo/button group aligned to the exact same left and right
-     * edges as the centred bottom row.
+     * Keeps the compact icon column directly above Options and aligns the
+     * BUTECO button's right edge with Quit Game. Skin Presets remains outside
+     * this upper group as the separate leftmost bottom button.
      */
     private static void positionPlayGroup(
             Button playButton,

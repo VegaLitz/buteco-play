@@ -98,3 +98,10 @@ Replace that line with another hostname or `hostname:port`. The file is read whe
 - Moves Skin Presets to the left of Options.
 - Keeps the order Skin Presets, Options, Quit Game and centres the complete row.
 - Keeps the SkinShuffle preview adjustment following the Skin Presets button.
+
+
+## v1.1.13
+
+- Keeps Skin Presets as the leftmost bottom-row button.
+- Places Mods, Accessibility, and Language directly above Options.
+- Keeps the BUTECO logo button ending at the right edge of Quit Game.
