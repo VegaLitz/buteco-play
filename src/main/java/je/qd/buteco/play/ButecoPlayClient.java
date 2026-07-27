@@ -40,13 +40,16 @@ public final class ButecoPlayClient implements ClientModInitializer {
             "buteco_play",
             "textures/gui/play_buteco.png"
     );
-    private static final int PLAY_TEXTURE_WIDTH = 1024;
-    private static final int PLAY_TEXTURE_HEIGHT = 300;
+    // The bundled texture is pre-sized for the title-screen GUI. Keeping the
+    // source texture at its final GUI size avoids the 26.2 blit overload treating
+    // the destination size as a cropped source region.
+    private static final int PLAY_TEXTURE_WIDTH = 168;
+    private static final int PLAY_TEXTURE_HEIGHT = 49;
 
-    // The logo's aspect ratio is close to this 270 x 80 button. The three
-    // square title-screen controls fit beside it as one vertical column.
-    private static final int PLAY_BUTTON_WIDTH = 270;
-    private static final int PLAY_BUTTON_HEIGHT = 80;
+    // The complete top group follows the same horizontal bounds as the
+    // Options/Quit row. The logo button occupies the remaining width beside
+    // the three compact controls.
+    private static final int DEFAULT_BOTTOM_GROUP_WIDTH = 204;
     private static final int PLAY_BUTTON_PADDING = 4;
     private static final int SIDE_BUTTON_GAP = 4;
     private static final int SIDE_COLUMN_GAP = 4;
@@ -80,10 +83,10 @@ public final class ButecoPlayClient implements ClientModInitializer {
 
             // Remove Friends controls and keep Online... disabled, including widgets
             // that another mod adds after screen initialization.
-            cleanRestrictedOnlineWidgets(screen);
+            cleanRestrictedWidgets(screen);
             ScreenEvents.afterExtract(screen).register(
                     (extractedScreen, graphics, mouseX, mouseY, tickDelta) ->
-                            cleanRestrictedOnlineWidgets(extractedScreen)
+                            cleanRestrictedWidgets(extractedScreen)
             );
 
             // The O key can still try to open the Friends overlay. Close any Friends
@@ -169,6 +172,11 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 .findFirst()
                 .orElse(null);
 
+        AbstractWidget quitButton = widgets.stream()
+                .filter(ButecoPlayClient::isQuitButton)
+                .findFirst()
+                .orElse(null);
+
         // Resolve these before removing anything. Icon-only buttons may have an
         // empty visible label, so a same-row fallback is included.
         List<AbstractWidget> sideButtons = findSideButtons(widgets, modsButton);
@@ -185,32 +193,42 @@ public final class ButecoPlayClient implements ClientModInitializer {
         int columnWidth = sideButtons.stream()
                 .mapToInt(AbstractWidget::getWidth)
                 .max()
-                .orElse(0);
+                .orElse(20);
 
-        int reservedForColumn = sideButtons.isEmpty()
-                ? 0
-                : columnWidth + SIDE_COLUMN_GAP;
+        int columnHeight = sideButtons.stream()
+                .mapToInt(AbstractWidget::getHeight)
+                .sum()
+                + SIDE_BUTTON_GAP * Math.max(0, sideButtons.size() - 1);
 
-        int maximumWidth = Math.max(
-                120,
-                scaledWidth - 40 - reservedForColumn
-        );
-        int width = Math.min(PLAY_BUTTON_WIDTH, maximumWidth);
+        // Use the actual bottom-row bounds whenever possible. This makes the
+        // left edge of the compact column line up with Options, and the right
+        // edge of the logo button line up with Quit Game.
+        int groupLeft;
+        int groupRight;
+
+        if (optionsButton != null && quitButton != null) {
+            groupLeft = Math.min(optionsButton.getX(), quitButton.getX());
+            groupRight = Math.max(
+                    optionsButton.getX() + optionsButton.getWidth(),
+                    quitButton.getX() + quitButton.getWidth()
+            );
+        } else {
+            groupLeft = (scaledWidth - DEFAULT_BOTTOM_GROUP_WIDTH) / 2;
+            groupRight = groupLeft + DEFAULT_BOTTOM_GROUP_WIDTH;
+        }
 
         int optionsY = optionsButton != null
                 ? optionsButton.getY()
                 : scaledHeight / 4 + 100;
 
-        int maximumHeight = Math.max(
-                48,
-                optionsY - MENU_ROW_GAP - 20
-        );
-        int height = Math.min(PLAY_BUTTON_HEIGHT, maximumHeight);
+        int groupWidth = groupRight - groupLeft;
+        groupRight = Math.min(scaledWidth - 10, groupLeft + groupWidth);
+        groupLeft = Math.max(10, groupRight - groupWidth);
 
-        int groupWidth = reservedForColumn + width;
-        int groupX = (scaledWidth - groupWidth) / 2;
-        int x = groupX + reservedForColumn;
-        int y = Math.max(20, optionsY - height - MENU_ROW_GAP);
+        int x = groupLeft + columnWidth + SIDE_COLUMN_GAP;
+        int width = Math.max(120, groupRight - x);
+        int height = Math.max(20, columnHeight);
+        int y = Math.max(20, optionsY - MENU_ROW_GAP - height);
 
         Button playButton = Button.builder(
                         Component.empty(),
@@ -276,10 +294,10 @@ public final class ButecoPlayClient implements ClientModInitializer {
 
         List<AbstractWidget> result = new ArrayList<>(3);
 
-        // Requested vertical order: Accessibility, Language, Mods.
+        // Requested vertical order: Mods, Accessibility, Language.
+        addUnique(result, modsButton);
         addUnique(result, accessibilityButton);
         addUnique(result, languageButton);
-        addUnique(result, modsButton);
 
         return result;
     }
@@ -326,24 +344,19 @@ public final class ButecoPlayClient implements ClientModInitializer {
             GuiGraphicsExtractor graphics,
             Button playButton
     ) {
-        int availableWidth = Math.max(
-                1,
-                playButton.getWidth() - PLAY_BUTTON_PADDING * 2
-        );
-        int availableHeight = Math.max(
-                1,
-                playButton.getHeight() - PLAY_BUTTON_PADDING * 2
-        );
+        int availableWidth = playButton.getWidth() - PLAY_BUTTON_PADDING * 2;
+        int availableHeight = playButton.getHeight() - PLAY_BUTTON_PADDING * 2;
 
-        float scale = Math.min(
-                availableWidth / (float) PLAY_TEXTURE_WIDTH,
-                availableHeight / (float) PLAY_TEXTURE_HEIGHT
-        );
+        // The texture is already the intended GUI size. Drawing it at 1:1 uses
+        // the complete image instead of sampling only its top-left corner.
+        if (availableWidth < PLAY_TEXTURE_WIDTH || availableHeight < PLAY_TEXTURE_HEIGHT) {
+            return;
+        }
 
-        int drawWidth = Math.max(1, Math.round(PLAY_TEXTURE_WIDTH * scale));
-        int drawHeight = Math.max(1, Math.round(PLAY_TEXTURE_HEIGHT * scale));
-        int drawX = playButton.getX() + (playButton.getWidth() - drawWidth) / 2;
-        int drawY = playButton.getY() + (playButton.getHeight() - drawHeight) / 2;
+        int drawX = playButton.getX()
+                + (playButton.getWidth() - PLAY_TEXTURE_WIDTH) / 2;
+        int drawY = playButton.getY()
+                + (playButton.getHeight() - PLAY_TEXTURE_HEIGHT) / 2;
 
         graphics.blit(
                 RenderPipelines.GUI_TEXTURED,
@@ -352,8 +365,8 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 drawY,
                 0.0F,
                 0.0F,
-                drawWidth,
-                drawHeight,
+                PLAY_TEXTURE_WIDTH,
+                PLAY_TEXTURE_HEIGHT,
                 PLAY_TEXTURE_WIDTH,
                 PLAY_TEXTURE_HEIGHT
         );
@@ -394,6 +407,15 @@ public final class ButecoPlayClient implements ClientModInitializer {
         return message.equals(Component.translatable("menu.options"))
                 || visibleText.equals("options...")
                 || visibleText.equals("options…");
+    }
+
+    private static boolean isQuitButton(AbstractWidget widget) {
+        Component message = widget.getMessage();
+        String visibleText = message.getString().trim().toLowerCase(Locale.ROOT);
+
+        return message.equals(Component.translatable("menu.quit"))
+                || visibleText.equals("quit game")
+                || visibleText.equals("quit");
     }
 
     private static boolean isAccessibilityButton(AbstractWidget widget) {
@@ -476,9 +498,10 @@ public final class ButecoPlayClient implements ClientModInitializer {
         });
     }
 
-    private static void cleanRestrictedOnlineWidgets(Screen screen) {
+    private static void cleanRestrictedWidgets(Screen screen) {
         List<AbstractWidget> widgets = Screens.getWidgets(screen);
-        widgets.removeIf(ButecoPlayClient::isFriendsWidget);
+        widgets.removeIf(widget -> isFriendsWidget(widget)
+                || isCreditsAndAttributionButton(widget));
 
         for (AbstractWidget widget : widgets) {
             if (isOnlineOptionsButton(widget)) {
@@ -494,6 +517,17 @@ public final class ButecoPlayClient implements ClientModInitializer {
         return message.equals(Component.translatable("options.online"))
                 || visibleText.equals("online...")
                 || visibleText.equals("online…");
+    }
+
+    private static boolean isCreditsAndAttributionButton(AbstractWidget widget) {
+        Component message = widget.getMessage();
+        String visibleText = message.getString().trim().toLowerCase(Locale.ROOT);
+
+        return message.equals(Component.translatable("options.credits_and_attribution"))
+                || visibleText.equals("credits & attribution...")
+                || visibleText.equals("credits & attribution…")
+                || visibleText.equals("credits and attribution...")
+                || visibleText.equals("credits and attribution…");
     }
 
     private static boolean isFriendsWidget(AbstractWidget widget) {

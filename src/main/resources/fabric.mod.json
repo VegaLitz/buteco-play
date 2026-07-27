@@ -3,7 +3,7 @@
   "id": "buteco_play",
   "version": "${version}",
   "name": "Buteco Play",
-  "description": "A locked-down Buteco client menu with a configurable server, a custom logo play button, vertical title controls, no vanilla play modes, no Friends List access, and a disabled Online Options entry.",
+  "description": "A locked-down Buteco client menu with a configurable server, a correctly scaled logo play button, aligned title controls, no vanilla play modes, no Friends List access, a disabled Online Options entry, and no Credits & Attribution button.",
   "authors": [
     "Victor"
   ],
