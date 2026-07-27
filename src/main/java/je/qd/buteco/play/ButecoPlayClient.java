@@ -12,6 +12,11 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -56,6 +61,16 @@ public final class ButecoPlayClient implements ClientModInitializer {
     private static final int SIDE_COLUMN_GAP = 4;
     private static final int MENU_ROW_GAP = 4;
     private static final int BOTTOM_BUTTON_GAP = 4;
+
+    // SkinShuffle draws its preview through a custom title-screen widget. Keep
+    // the model slightly smaller and lower so it sits closer to Skin Presets.
+    private static final double SKIN_PREVIEW_SCALE_FACTOR = 0.84D;
+    private static final int SKIN_PREVIEW_DOWN_OFFSET = 7;
+
+    private static final Map<Screen, SkinPreviewAdjustment> SKIN_PREVIEW_ADJUSTMENTS =
+            Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Set<Object> TUNED_SKIN_PREVIEW_OBJECTS =
+            Collections.newSetFromMap(new WeakHashMap<>());
 
     /**
      * Wait a few extracted frames before changing the menu. Mod Menu can add its
@@ -488,10 +503,16 @@ public final class ButecoPlayClient implements ClientModInitializer {
             return null;
         }
 
+        int oldSkinCentreX = skinPresetsButton == null
+                ? 0
+                : skinPresetsButton.getX() + skinPresetsButton.getWidth() / 2;
+
+        // Requested order: Options, Skin Presets, Quit Game. Skin Presets is now
+        // immediately to the right of Options instead of being the far-right item.
         List<AbstractWidget> bottomButtons = new ArrayList<>(3);
         bottomButtons.add(optionsButton);
-        bottomButtons.add(quitButton);
         addUnique(bottomButtons, skinPresetsButton);
+        bottomButtons.add(quitButton);
 
         int totalWidth = bottomButtons.stream()
                 .mapToInt(AbstractWidget::getWidth)
@@ -507,10 +528,244 @@ public final class ButecoPlayClient implements ClientModInitializer {
             x += widget.getWidth() + BOTTOM_BUTTON_GAP;
         }
 
-        // Skin Presets stays in the centred bottom row, but the upper BUTECO
-        // group intentionally ends at the right edge of Quit Game.
+        if (skinPresetsButton != null) {
+            int newSkinCentreX = skinPresetsButton.getX()
+                    + skinPresetsButton.getWidth() / 2;
+            rememberSkinPreviewShift(
+                    titleScreen,
+                    newSkinCentreX - oldSkinCentreX
+            );
+            tuneSkinShufflePreview(titleScreen, skinPresetsButton);
+        }
+
+        // The upper BUTECO group follows the full row and ends with Quit Game.
         int playGroupRight = quitButton.getX() + quitButton.getWidth();
         return new BottomRowLayout(left, playGroupRight, y);
+    }
+
+    private static void rememberSkinPreviewShift(Screen screen, int deltaX) {
+        SkinPreviewAdjustment current = SKIN_PREVIEW_ADJUSTMENTS.get(screen);
+
+        if (current == null) {
+            SKIN_PREVIEW_ADJUSTMENTS.put(
+                    screen,
+                    new SkinPreviewAdjustment(deltaX, SKIN_PREVIEW_DOWN_OFFSET)
+            );
+            return;
+        }
+
+        // The first non-zero movement is the shift from SkinShuffle's original
+        // right-side position to the custom centred row. Keep it for preview
+        // objects that SkinShuffle creates a frame or two later.
+        if (current.deltaX() == 0 && deltaX != 0) {
+            SKIN_PREVIEW_ADJUSTMENTS.put(
+                    screen,
+                    new SkinPreviewAdjustment(deltaX, current.deltaY())
+            );
+        }
+    }
+
+    /**
+     * SkinShuffle has changed its internal preview widget names between releases,
+     * so this compatibility layer intentionally avoids a hard dependency. It walks
+     * the title screen's SkinShuffle-owned widget state, moves it with the Skin
+     * Presets button, lowers it slightly, and reduces its model scale once.
+     */
+    private static void tuneSkinShufflePreview(
+            Screen titleScreen,
+            AbstractWidget skinPresetsButton
+    ) {
+        SkinPreviewAdjustment adjustment = SKIN_PREVIEW_ADJUSTMENTS.get(titleScreen);
+        if (adjustment == null) {
+            adjustment = new SkinPreviewAdjustment(0, SKIN_PREVIEW_DOWN_OFFSET);
+        }
+
+        Set<Object> candidates = Collections.newSetFromMap(new IdentityHashMap<>());
+        collectSkinShuffleObjects(titleScreen, candidates, 0);
+        collectSkinShuffleObjects(skinPresetsButton, candidates, 0);
+
+        for (AbstractWidget widget : Screens.getWidgets(titleScreen)) {
+            if (widget != skinPresetsButton && isSkinShuffleOwned(widget)) {
+                candidates.add(widget);
+                collectSkinShuffleObjects(widget, candidates, 0);
+            }
+        }
+
+        for (Object candidate : candidates) {
+            if (candidate == null
+                    || candidate == skinPresetsButton
+                    || !isSkinPreviewLike(candidate)) {
+                continue;
+            }
+
+            if (TUNED_SKIN_PREVIEW_OBJECTS.add(candidate)) {
+                tuneSkinPreviewObject(candidate, adjustment);
+            }
+        }
+    }
+
+    private static void collectSkinShuffleObjects(
+            Object owner,
+            Set<Object> results,
+            int depth
+    ) {
+        if (owner == null || depth > 3) {
+            return;
+        }
+
+        Class<?> current = owner.getClass();
+        while (current != null) {
+            for (Field field : current.getDeclaredFields()) {
+                if (Modifier.isStatic(field.getModifiers())
+                        || field.getType().isPrimitive()
+                        || field.getType().isEnum()
+                        || field.getType() == String.class
+                        || field.getType() == Component.class) {
+                    continue;
+                }
+
+                try {
+                    field.setAccessible(true);
+                    Object value = field.get(owner);
+
+                    if (value == null || value == owner) {
+                        continue;
+                    }
+
+                    if (isSkinShuffleOwned(value)) {
+                        if (results.add(value)) {
+                            collectSkinShuffleObjects(value, results, depth + 1);
+                        }
+                    }
+                } catch (ReflectiveOperationException | RuntimeException ignored) {
+                    // A compatibility helper must never prevent the title screen
+                    // from loading when SkinShuffle changes an internal field.
+                }
+            }
+            current = current.getSuperclass();
+        }
+    }
+
+    private static boolean isSkinShuffleOwned(Object object) {
+        String className = object.getClass().getName().toLowerCase(Locale.ROOT);
+        return className.contains("skinshuffle")
+                || className.contains("skin_shuffle")
+                || className.startsWith("dev.imb11.")
+                || className.startsWith("com.mineblock11.");
+    }
+
+    private static boolean isSkinPreviewLike(Object object) {
+        String className = object.getClass().getName().toLowerCase(Locale.ROOT);
+        return isSkinShuffleOwned(object)
+                && (className.contains("preview")
+                || className.contains("widget")
+                || className.contains("render")
+                || className.contains("title")
+                || className.contains("skinbutton")
+                || className.contains("player"));
+    }
+
+    private static void tuneSkinPreviewObject(
+            Object object,
+            SkinPreviewAdjustment adjustment
+    ) {
+        Class<?> current = object.getClass();
+
+        while (current != null) {
+            for (Field field : current.getDeclaredFields()) {
+                int modifiers = field.getModifiers();
+                if (Modifier.isStatic(modifiers) || Modifier.isFinal(modifiers)) {
+                    continue;
+                }
+
+                String name = field.getName().toLowerCase(Locale.ROOT);
+
+                try {
+                    field.setAccessible(true);
+
+                    if (isScaleField(name)) {
+                        scaleNumericField(field, object, SKIN_PREVIEW_SCALE_FACTOR);
+                    } else if (isPreviewXField(name)) {
+                        offsetNumericField(field, object, adjustment.deltaX());
+                    } else if (isPreviewYField(name)) {
+                        offsetNumericField(field, object, adjustment.deltaY());
+                    }
+                } catch (ReflectiveOperationException | RuntimeException ignored) {
+                    // Ignore incompatible fields; other matching fields can still
+                    // provide the requested placement on this SkinShuffle version.
+                }
+            }
+            current = current.getSuperclass();
+        }
+    }
+
+    private static boolean isScaleField(String name) {
+        return name.equals("scale")
+                || name.contains("modelscale")
+                || name.contains("playerscale")
+                || name.contains("previewscale")
+                || name.contains("renderscale")
+                || name.contains("model_size")
+                || name.contains("modelsize");
+    }
+
+    private static boolean isPreviewXField(String name) {
+        return name.equals("x")
+                || name.equals("centerx")
+                || name.equals("centrex")
+                || name.contains("previewx")
+                || name.contains("renderx")
+                || name.contains("modelx")
+                || name.contains("playerx")
+                || name.contains("widgetx");
+    }
+
+    private static boolean isPreviewYField(String name) {
+        return name.equals("y")
+                || name.contains("previewy")
+                || name.contains("rendery")
+                || name.contains("modely")
+                || name.contains("playery")
+                || name.contains("widgety")
+                || name.contains("yoffset");
+    }
+
+    private static void scaleNumericField(
+            Field field,
+            Object owner,
+            double factor
+    ) throws IllegalAccessException {
+        Class<?> type = field.getType();
+
+        if (type == float.class) {
+            field.setFloat(owner, (float) (field.getFloat(owner) * factor));
+        } else if (type == double.class) {
+            field.setDouble(owner, field.getDouble(owner) * factor);
+        } else if (type == int.class) {
+            int value = field.getInt(owner);
+            if (value > 1) {
+                field.setInt(owner, Math.max(1, (int) Math.round(value * factor)));
+            }
+        }
+    }
+
+    private static void offsetNumericField(
+            Field field,
+            Object owner,
+            int offset
+    ) throws IllegalAccessException {
+        if (offset == 0) {
+            return;
+        }
+
+        Class<?> type = field.getType();
+        if (type == int.class) {
+            field.setInt(owner, field.getInt(owner) + offset);
+        } else if (type == float.class) {
+            field.setFloat(owner, field.getFloat(owner) + offset);
+        } else if (type == double.class) {
+            field.setDouble(owner, field.getDouble(owner) + offset);
+        }
     }
 
     /**
@@ -939,6 +1194,9 @@ public final class ButecoPlayClient implements ClientModInitializer {
             Button playButton,
             List<AbstractWidget> sideButtons
     ) {
+    }
+
+    private record SkinPreviewAdjustment(int deltaX, int deltaY) {
     }
 
     private static Path serverConfigPath() {

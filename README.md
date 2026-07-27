@@ -84,3 +84,10 @@ Replace that line with another hostname or `hostname:port`. The file is read whe
 - Keeps Skin Presets in the centred bottom row while ending the upper BUTECO button at the right edge of Quit Game.
 - Moves the Mods, Accessibility, and Language tooltip close to the pointer, slightly below and to the right.
 - Replaces the purple tooltip outline with a stepped white Minecraft-style border inset by one pixel.
+
+
+## v1.1.11
+
+- Reorders the bottom row to Options, Skin Presets, Quit Game.
+- Keeps the complete row centred.
+- Adds a SkinShuffle compatibility adjustment that makes the title-screen skin preview slightly smaller, lowers it toward the Skin Presets button, and follows the button when it moves.
