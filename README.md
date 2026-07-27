@@ -105,3 +105,11 @@ Replace that line with another hostname or `hostname:port`. The file is read whe
 - Keeps Skin Presets as the leftmost bottom-row button.
 - Places Mods, Accessibility, and Language directly above Options.
 - Keeps the BUTECO logo button ending at the right edge of Quit Game.
+
+
+## v1.1.14
+
+- Makes SkinShuffle's title-screen character significantly smaller.
+- Moves the character lower so it sits closer to the Skin Presets button.
+- Also handles SkinShuffle builds where the preview is rendered by the Skin Presets widget itself.
+- Reapplies the adjustment safely each frame without cumulative shrinking or drifting.

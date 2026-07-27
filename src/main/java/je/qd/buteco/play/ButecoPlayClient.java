@@ -62,15 +62,19 @@ public final class ButecoPlayClient implements ClientModInitializer {
     private static final int MENU_ROW_GAP = 4;
     private static final int BOTTOM_BUTTON_GAP = 4;
 
-    // SkinShuffle draws its preview through a custom title-screen widget. Keep
-    // the model slightly smaller and lower so it sits closer to Skin Presets.
-    private static final double SKIN_PREVIEW_SCALE_FACTOR = 0.84D;
-    private static final int SKIN_PREVIEW_DOWN_OFFSET = 7;
+    // SkinShuffle draws its title-screen model through its own widget. The model
+    // is deliberately reduced more strongly and lowered towards Skin Presets.
+    private static final double SKIN_PREVIEW_SCALE_FACTOR = 0.68D;
+    private static final int SKIN_PREVIEW_DOWN_OFFSET = 18;
 
     private static final Map<Screen, SkinPreviewAdjustment> SKIN_PREVIEW_ADJUSTMENTS =
             Collections.synchronizedMap(new WeakHashMap<>());
-    private static final Set<Object> TUNED_SKIN_PREVIEW_OBJECTS =
-            Collections.newSetFromMap(new WeakHashMap<>());
+
+    // SkinShuffle can rewrite its preview values while extracting the screen. Keep
+    // each field's unmodified value so the requested scale and offset can be
+    // reapplied every frame without repeatedly multiplying or adding to it.
+    private static final Map<Object, Map<String, Number>> SKIN_PREVIEW_BASE_VALUES =
+            Collections.synchronizedMap(new WeakHashMap<>());
 
     /**
      * Wait a few extracted frames before changing the menu. Mod Menu can add its
@@ -584,26 +588,31 @@ public final class ButecoPlayClient implements ClientModInitializer {
         }
 
         Set<Object> candidates = Collections.newSetFromMap(new IdentityHashMap<>());
+        candidates.add(skinPresetsButton);
         collectSkinShuffleObjects(titleScreen, candidates, 0);
         collectSkinShuffleObjects(skinPresetsButton, candidates, 0);
 
         for (AbstractWidget widget : Screens.getWidgets(titleScreen)) {
-            if (widget != skinPresetsButton && isSkinShuffleOwned(widget)) {
+            if (isSkinShuffleOwned(widget)) {
                 candidates.add(widget);
                 collectSkinShuffleObjects(widget, candidates, 0);
             }
         }
 
         for (Object candidate : candidates) {
-            if (candidate == null
-                    || candidate == skinPresetsButton
-                    || !isSkinPreviewLike(candidate)) {
+            if (candidate == null || !isSkinPreviewLike(candidate)) {
                 continue;
             }
 
-            if (TUNED_SKIN_PREVIEW_OBJECTS.add(candidate)) {
-                tuneSkinPreviewObject(candidate, adjustment);
-            }
+            // In current SkinShuffle builds, the character can be rendered by the
+            // same widget that owns the Skin Presets button. Include that widget,
+            // but preserve its normal AbstractWidget x/y fields because the custom
+            // bottom-row layout already positions the button itself.
+            tuneSkinPreviewObject(
+                    candidate,
+                    adjustment,
+                    candidate == skinPresetsButton
+            );
         }
     }
 
@@ -670,7 +679,8 @@ public final class ButecoPlayClient implements ClientModInitializer {
 
     private static void tuneSkinPreviewObject(
             Object object,
-            SkinPreviewAdjustment adjustment
+            SkinPreviewAdjustment adjustment,
+            boolean preserveWidgetPosition
     ) {
         Class<?> current = object.getClass();
 
@@ -687,11 +697,19 @@ public final class ButecoPlayClient implements ClientModInitializer {
                     field.setAccessible(true);
 
                     if (isScaleField(name)) {
-                        scaleNumericField(field, object, SKIN_PREVIEW_SCALE_FACTOR);
-                    } else if (isPreviewXField(name)) {
-                        offsetNumericField(field, object, adjustment.deltaX());
-                    } else if (isPreviewYField(name)) {
-                        offsetNumericField(field, object, adjustment.deltaY());
+                        setScaledFromBase(
+                                field,
+                                object,
+                                SKIN_PREVIEW_SCALE_FACTOR
+                        );
+                    } else if (isPreviewXField(name)
+                            && (!preserveWidgetPosition
+                            || isExplicitPreviewPositionField(name))) {
+                        setOffsetFromBase(field, object, adjustment.deltaX());
+                    } else if (isPreviewYField(name)
+                            && (!preserveWidgetPosition
+                            || isExplicitPreviewPositionField(name))) {
+                        setOffsetFromBase(field, object, adjustment.deltaY());
                     }
                 } catch (ReflectiveOperationException | RuntimeException ignored) {
                     // Ignore incompatible fields; other matching fields can still
@@ -704,12 +722,22 @@ public final class ButecoPlayClient implements ClientModInitializer {
 
     private static boolean isScaleField(String name) {
         return name.equals("scale")
+                || name.equals("size")
                 || name.contains("modelscale")
                 || name.contains("playerscale")
                 || name.contains("previewscale")
                 || name.contains("renderscale")
+                || name.contains("entityscale")
                 || name.contains("model_size")
-                || name.contains("modelsize");
+                || name.contains("modelsize")
+                || name.contains("player_size")
+                || name.contains("playersize")
+                || name.contains("preview_size")
+                || name.contains("previewsize")
+                || name.contains("render_size")
+                || name.contains("rendersize")
+                || name.contains("entity_size")
+                || name.contains("entitysize");
     }
 
     private static boolean isPreviewXField(String name) {
@@ -720,7 +748,10 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 || name.contains("renderx")
                 || name.contains("modelx")
                 || name.contains("playerx")
-                || name.contains("widgetx");
+                || name.contains("widgetx")
+                || name.contains("xoffset")
+                || name.contains("offsetx")
+                || name.contains("horizontaloffset");
     }
 
     private static boolean isPreviewYField(String name) {
@@ -730,45 +761,92 @@ public final class ButecoPlayClient implements ClientModInitializer {
                 || name.contains("modely")
                 || name.contains("playery")
                 || name.contains("widgety")
-                || name.contains("yoffset");
+                || name.contains("yoffset")
+                || name.contains("offsety")
+                || name.contains("verticaloffset");
     }
 
-    private static void scaleNumericField(
+    private static boolean isExplicitPreviewPositionField(String name) {
+        return name.contains("preview")
+                || name.contains("render")
+                || name.contains("model")
+                || name.contains("player")
+                || name.contains("offset");
+    }
+
+    private static void setScaledFromBase(
             Field field,
             Object owner,
             double factor
     ) throws IllegalAccessException {
-        Class<?> type = field.getType();
+        Number base = getSkinPreviewBaseValue(field, owner);
+        if (base == null) {
+            return;
+        }
 
+        Class<?> type = field.getType();
         if (type == float.class) {
-            field.setFloat(owner, (float) (field.getFloat(owner) * factor));
+            field.setFloat(owner, (float) (base.floatValue() * factor));
         } else if (type == double.class) {
-            field.setDouble(owner, field.getDouble(owner) * factor);
+            field.setDouble(owner, base.doubleValue() * factor);
         } else if (type == int.class) {
-            int value = field.getInt(owner);
+            int value = base.intValue();
             if (value > 1) {
                 field.setInt(owner, Math.max(1, (int) Math.round(value * factor)));
             }
         }
     }
 
-    private static void offsetNumericField(
+    private static void setOffsetFromBase(
             Field field,
             Object owner,
             int offset
     ) throws IllegalAccessException {
-        if (offset == 0) {
+        Number base = getSkinPreviewBaseValue(field, owner);
+        if (base == null) {
             return;
         }
 
         Class<?> type = field.getType();
         if (type == int.class) {
-            field.setInt(owner, field.getInt(owner) + offset);
+            field.setInt(owner, base.intValue() + offset);
         } else if (type == float.class) {
-            field.setFloat(owner, field.getFloat(owner) + offset);
+            field.setFloat(owner, base.floatValue() + offset);
         } else if (type == double.class) {
-            field.setDouble(owner, field.getDouble(owner) + offset);
+            field.setDouble(owner, base.doubleValue() + offset);
         }
+    }
+
+    private static Number getSkinPreviewBaseValue(
+            Field field,
+            Object owner
+    ) throws IllegalAccessException {
+        Class<?> type = field.getType();
+        if (type != int.class && type != float.class && type != double.class) {
+            return null;
+        }
+
+        Map<String, Number> values = SKIN_PREVIEW_BASE_VALUES.computeIfAbsent(
+                owner,
+                ignored -> new java.util.HashMap<>()
+        );
+        String key = field.getDeclaringClass().getName() + "#" + field.getName();
+        Number existing = values.get(key);
+        if (existing != null) {
+            return existing;
+        }
+
+        Number value;
+        if (type == int.class) {
+            value = field.getInt(owner);
+        } else if (type == float.class) {
+            value = field.getFloat(owner);
+        } else {
+            value = field.getDouble(owner);
+        }
+
+        values.put(key, value);
+        return value;
     }
 
     /**
