@@ -1,6 +1,7 @@
 package je.qd.buteco.play;
 
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.io.IOException;
@@ -40,9 +41,9 @@ public final class ButecoPlayClient implements ClientModInitializer {
             "buteco_play",
             "textures/gui/play_buteco.png"
     );
-    // The bundled texture is pre-sized for the title-screen GUI. Keeping the
-    // source texture at its final GUI size avoids the 26.2 blit overload treating
-    // the destination size as a cropped source region.
+    // Minecraft still renders the logo inside a compact GUI button, so there is
+    // a limit to how sharp it can appear on screen. The bundled texture is a
+    // carefully downsampled high-quality version of the original artwork.
     private static final int PLAY_TEXTURE_WIDTH = 168;
     private static final int PLAY_TEXTURE_HEIGHT = 49;
 
@@ -180,6 +181,7 @@ public final class ButecoPlayClient implements ClientModInitializer {
         // Resolve these before removing anything. Icon-only buttons may have an
         // empty visible label, so a same-row fallback is included.
         List<AbstractWidget> sideButtons = findSideButtons(widgets, modsButton);
+        normalizeSideButtons(sideButtons);
 
         // Remove the three vanilla play-mode buttons, an older custom Play button,
         // Friends, and auxiliary widgets occupying the Realms row.
@@ -308,6 +310,73 @@ public final class ButecoPlayClient implements ClientModInitializer {
     ) {
         if (candidate != null && !widgets.contains(candidate)) {
             widgets.add(candidate);
+        }
+    }
+
+    private static void normalizeSideButtons(List<AbstractWidget> sideButtons) {
+        for (AbstractWidget widget : sideButtons) {
+            hideWidgetLabel(widget);
+            shrinkWidgetToIcon(widget);
+        }
+    }
+
+    /**
+     * Some compact buttons still keep their long text label internally. With the
+     * custom title layout that text can render underneath the logo, so clear it.
+     */
+    private static void hideWidgetLabel(AbstractWidget widget) {
+        try {
+            Method setMessage = widget.getClass().getMethod("setMessage", Component.class);
+            setMessage.invoke(widget, Component.empty());
+            return;
+        } catch (ReflectiveOperationException ignored) {
+            // Fall through to the field-based fallback below.
+        }
+
+        Class<?> current = widget.getClass();
+        while (current != null) {
+            try {
+                Field messageField = current.getDeclaredField("message");
+                messageField.setAccessible(true);
+                messageField.set(widget, Component.empty());
+                return;
+            } catch (NoSuchFieldException ignored) {
+                current = current.getSuperclass();
+            } catch (ReflectiveOperationException ignored) {
+                return;
+            }
+        }
+    }
+
+    /**
+     * Resource packs or mods can provide the side buttons as compact-looking icons
+     * backed by much wider widgets. Shrinking them to a square prevents the hidden
+     * label area from extending under the logo button.
+     */
+    private static void shrinkWidgetToIcon(AbstractWidget widget) {
+        int targetSize = Math.max(20, Math.min(widget.getHeight(), 24));
+
+        setWidgetDimension(widget, "width", targetSize);
+        setWidgetDimension(widget, "height", targetSize);
+    }
+
+    private static void setWidgetDimension(
+            AbstractWidget widget,
+            String fieldName,
+            int value
+    ) {
+        Class<?> current = widget.getClass();
+        while (current != null) {
+            try {
+                Field field = current.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                field.setInt(widget, value);
+                return;
+            } catch (NoSuchFieldException ignored) {
+                current = current.getSuperclass();
+            } catch (ReflectiveOperationException ignored) {
+                return;
+            }
         }
     }
 

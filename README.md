@@ -6,15 +6,13 @@ Client-side Fabric mod for **Minecraft 26.2** and **Fabric Loader 0.19.3 or late
 
 - Removes Singleplayer, Multiplayer, and Minecraft Realms from the title screen.
 - Replaces the old text Play button with the supplied **BUTECO logo** inside one clickable button.
-- Places **Mods**, **Accessibility**, and **Language** in that order in a vertical column to the left of the logo button.
+- Moves **Accessibility**, **Language**, and **Mods** into a vertical column to the left of the logo button.
 - Connects directly to the server address stored in `config/buteco.txt` (default: `buteco.qd.je`).
 - Removes the Realms diamond and newspaper notification symbols.
 - Returns to the customized title screen after disconnecting.
 - Removes Minecraft 26.2's Friends button from the title screen and pause menu.
 - Blocks the Friends List overlay, including the default `O` key route.
 - Disables the **Online...** button in Options.
-- Completely removes **Credits & Attribution...** from the Options screen.
-- Aligns the complete logo/control group with the **Options... / Quit Game** row.
 
 ## Build with GitHub Actions
 
@@ -23,7 +21,7 @@ Upload the contents of this project folder to the root of your GitHub repository
 Install this file from the artifact:
 
 ```text
-buteco-play-1.1.4.jar
+buteco-play-1.1.3.jar
 ```
 
 Do not install the `-sources.jar` file.
@@ -49,3 +47,9 @@ buteco.qd.je
 ```
 
 Replace that line with another hostname or `hostname:port`. The file is read whenever the **BUTECO logo button** is pressed, so Minecraft does not need to be restarted after editing it. Blank lines and lines beginning with `#` are ignored. If the file is missing, empty, or unreadable, the mod falls back to `buteco.qd.je`.
+
+
+## v1.1.5
+
+- Sharper Play BUTECO logo using a higher-quality resample of the provided artwork.
+- Clears side-button labels and shrinks icon widgets so their text does not render beneath the logo.
